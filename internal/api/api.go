@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -200,4 +203,60 @@ func (c *Client) Ledger(launchUUID string) ([]FileResult, error) {
 		return json.NewDecoder(resp.Body).Decode(&out)
 	})
 	return out, err
+}
+
+// UploadFiles streams the given files as one multipart request (parts named "files",
+// base file names — the server identifies results by content, not path). The body is
+// streamed via io.Pipe, never buffered whole in RAM. Files that fail to open are
+// skipped with a warning: in watch mode a file can legitimately vanish between scan
+// and send. Retries rebuild the request and re-read the files from disk.
+func (c *Client) UploadFiles(launchUUID string, paths []string) ([]FileResult, error) {
+	var out struct {
+		Files []FileResult `json:"files"`
+	}
+	err := c.withRetry("upload batch", func() error {
+		pr, pw := io.Pipe()
+		mw := multipart.NewWriter(pw)
+		go func() {
+			pw.CloseWithError(c.writeParts(mw, paths))
+		}()
+		req, err := c.newRequest(http.MethodPost,
+			"/api/import/launches/"+url.PathEscape(launchUUID)+"/files", pr)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		resp, err := c.Uploads.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if err := checkStatus(resp); err != nil {
+			return err
+		}
+		out.Files = nil
+		return json.NewDecoder(resp.Body).Decode(&out)
+	})
+	return out.Files, err
+}
+
+// writeParts writes one part per readable file and closes the multipart trailer.
+func (c *Client) writeParts(mw *multipart.Writer, paths []string) error {
+	defer mw.Close()
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			c.logf("skipping %s: %v", p, err)
+			continue
+		}
+		part, err := mw.CreateFormFile("files", filepath.Base(p))
+		if err == nil {
+			_, err = io.Copy(part, f)
+		}
+		f.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

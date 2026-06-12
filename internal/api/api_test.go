@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,5 +146,66 @@ func TestLedgerDecodesBareArray(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Status != "PARSED" {
 		t.Errorf("got %+v", rows)
+	}
+}
+
+func TestUploadFilesMultipart(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a-result.json", "b-result.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`{"uuid":"`+name+`"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	var fileNames []string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		for _, fh := range r.MultipartForm.File["files"] {
+			fileNames = append(fileNames, fh.Filename)
+		}
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"files":[{"fileName":"a-result.json","kind":"ALLURE_RESULT","status":"PARSED"},{"fileName":"b-result.json","kind":"ALLURE_RESULT","status":"PARSED"}]}`))
+	}))
+	res, err := c.UploadFiles("u-1", []string{
+		filepath.Join(dir, "a-result.json"),
+		filepath.Join(dir, "b-result.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 || res[0].Status != "PARSED" {
+		t.Errorf("bad response decode: %+v", res)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(fileNames) != 2 {
+		t.Fatalf("want 2 parts named files, got %v", fileNames)
+	}
+	if fileNames[0] != "a-result.json" || fileNames[1] != "b-result.json" {
+		t.Errorf("file names must be base names: %v", fileNames)
+	}
+}
+
+func TestUploadFilesSkipsUnopenable(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "ok-result.json")
+	_ = os.WriteFile(good, []byte(`{}`), 0o644)
+	var count atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(32 << 20)
+		count.Store(int32(len(r.MultipartForm.File["files"])))
+		_, _ = w.Write([]byte(`{"files":[]}`))
+	}))
+	// a vanished file must be skipped, not fail the batch (watch-mode race)
+	_, err := c.UploadFiles("u-1", []string{filepath.Join(dir, "gone.json"), good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count.Load() != 1 {
+		t.Errorf("want 1 part, got %d", count.Load())
 	}
 }
