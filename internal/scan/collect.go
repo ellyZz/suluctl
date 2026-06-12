@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -29,7 +28,7 @@ func Collect(results string) ([]FileState, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	sortByPath(out)
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no files found at %q", results)
 	}
@@ -37,11 +36,27 @@ func Collect(results string) ([]FileState, error) {
 }
 
 func collect(results string) ([]FileState, error) {
-	if info, err := os.Stat(results); err == nil {
+	info, statErr := os.Stat(results)
+	if statErr == nil {
 		if info.IsDir() {
+			// os.Stat follows symlinks, but WalkDir Lstats its root and won't
+			// descend into a symlinked directory. Resolve first.
+			if resolved, rerr := filepath.EvalSymlinks(results); rerr == nil {
+				results = resolved
+			}
 			return walkDir(results)
 		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("--results %q is not a regular file", results)
+		}
 		return []FileState{{Path: results, Size: info.Size(), ModTime: info.ModTime()}}, nil
+	}
+	// Only treat as a glob pattern when the path actually contains meta characters.
+	// A meta-character-free path that failed stat (e.g. a dangling symlink) is
+	// simply an error — recursing via Glob would cause infinite recursion because
+	// Glob (Lstat-based) would return the path itself as a match.
+	if !strings.ContainsAny(results, "*?[\\") {
+		return nil, fmt.Errorf("cannot read --results %q: %w", results, statErr)
 	}
 	matches, err := filepath.Glob(results)
 	if err != nil {
@@ -49,6 +64,13 @@ func collect(results string) ([]FileState, error) {
 	}
 	var out []FileState
 	for _, m := range matches {
+		if m == results {
+			continue // guard against a Glob returning the pattern itself
+		}
+		// Skip glob matches whose stat fails (e.g. dangling symlinks).
+		if _, serr := os.Stat(m); serr != nil {
+			continue
+		}
 		sub, err := collect(m)
 		if err != nil {
 			return nil, err
@@ -58,7 +80,8 @@ func collect(results string) ([]FileState, error) {
 	return out, nil
 }
 
-// walkDir returns all regular files under dir, skipping dot-files and dot-dirs.
+// walkDir returns all regular files under dir, skipping symlinks, dot-files,
+// dot-dirs, and other irregular files.
 func walkDir(dir string) ([]FileState, error) {
 	var out []FileState
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
