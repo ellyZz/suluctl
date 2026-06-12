@@ -88,7 +88,7 @@ test:
 ## How it works
 
 - **`upload`** creates an import session on the Sulu server, then uploads files in batches (up to 100 files / 190 MB per request; files larger than 50 MB ride alone). After all batches are sent, it calls finish and prints a ledger summary with a direct link to the new launch.
-- **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server collapses retries by content hash. If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
+- **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
 - **The server handles format detection** — allure-results JSON, allure container JSON, JUnit XML, and ZIP archives are all parsed server-side. Unknown file types are silently ignored and never cause an error.
 
 ## License
