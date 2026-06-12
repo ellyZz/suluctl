@@ -190,6 +190,43 @@ func TestUploadFilesMultipart(t *testing.T) {
 	}
 }
 
+func TestUploadRetryRebuildsRequest(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a-result.json", "b-result.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var secondAttemptParts int
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			t.Error(err)
+			return
+		}
+		mu.Lock()
+		secondAttemptParts = len(r.MultipartForm.File["files"])
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"files":[]}`))
+	}))
+	if _, err := c.UploadFiles("u-1", []string{
+		filepath.Join(dir, "a-result.json"),
+		filepath.Join(dir, "b-result.json"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if secondAttemptParts != 2 {
+		t.Errorf("retry must re-read both files from disk, got %d parts", secondAttemptParts)
+	}
+}
+
 func TestUploadFilesSkipsUnopenable(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "ok-result.json")

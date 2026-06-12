@@ -217,14 +217,15 @@ func (c *Client) UploadFiles(launchUUID string, paths []string) ([]FileResult, e
 	err := c.withRetry("upload batch", func() error {
 		pr, pw := io.Pipe()
 		mw := multipart.NewWriter(pw)
-		go func() {
-			pw.CloseWithError(c.writeParts(mw, paths))
-		}()
 		req, err := c.newRequest(http.MethodPost,
 			"/api/import/launches/"+url.PathEscape(launchUUID)+"/files", pr)
 		if err != nil {
+			pr.Close()
 			return err
 		}
+		go func() {
+			pw.CloseWithError(c.writeParts(mw, paths))
+		}()
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		resp, err := c.Uploads.Do(req)
 		if err != nil {
@@ -242,7 +243,6 @@ func (c *Client) UploadFiles(launchUUID string, paths []string) ([]FileResult, e
 
 // writeParts writes one part per readable file and closes the multipart trailer.
 func (c *Client) writeParts(mw *multipart.Writer, paths []string) error {
-	defer mw.Close()
 	for _, p := range paths {
 		f, err := os.Open(p)
 		if err != nil {
@@ -255,8 +255,9 @@ func (c *Client) writeParts(mw *multipart.Writer, paths []string) error {
 		}
 		f.Close()
 		if err != nil {
+			mw.Close()
 			return err
 		}
 	}
-	return nil
+	return mw.Close()
 }
