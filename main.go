@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/ellyZz/suluctl/internal/cmd"
 )
 
 // Set via goreleaser ldflags.
@@ -34,8 +36,7 @@ func run(args []string) int {
 	}
 	switch args[0] {
 	case "upload":
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		return 2
+		return cmd.Upload(args[1:], os.Stdout, os.Stderr, version)
 	case "watch":
 		fmt.Fprintln(os.Stderr, "not implemented yet")
 		return 2
