@@ -12,7 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version-file: go.mod
+          cache: false
       - name: gofmt
         run: test -z "$(gofmt -l .)"
       - name: vet
@@ -22,4 +23,5 @@ jobs:
       - name: snapshot build
         uses: goreleaser/goreleaser-action@v6
         with:
+          version: '~> v2'
           args: release --snapshot --clean --skip docker
