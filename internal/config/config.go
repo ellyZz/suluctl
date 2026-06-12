@@ -44,7 +44,7 @@ func (c *Config) Validate() error {
 		missing = append(missing, "Sulu URL (--url or SULU_URL)")
 	}
 	if c.Token == "" {
-		missing = append(missing, "API token (--token or SULU_TOKEN; create one in Profile → API tokens)")
+		missing = append(missing, "API token (--token or SULU_TOKEN; create one in Profile → API keys)")
 	}
 	if c.ProjectID <= 0 {
 		missing = append(missing, "project id (--project or SULU_PROJECT_ID)")

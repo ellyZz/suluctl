@@ -3,7 +3,7 @@
 # Required env: SULU_URL, SULU_TOKEN, SULU_PROJECT_ID.
 set -euo pipefail
 : "${SULU_URL:?SULU_URL required (e.g. http://localhost:8080)}"
-: "${SULU_TOKEN:?SULU_TOKEN required (Profile → API tokens)}"
+: "${SULU_TOKEN:?SULU_TOKEN required (Profile → API keys)}"
 : "${SULU_PROJECT_ID:?SULU_PROJECT_ID required}"
 
 cd "$(dirname "$0")/.."

@@ -20,6 +20,9 @@ import (
 // so forwarding is required. Process.Signal is not implemented on Windows —
 // the error is deliberately ignored there.
 func Run(argv []string) (code int, interrupted bool, err error) {
+	if len(argv) == 0 {
+		return 127, false, errors.New("empty command")
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 

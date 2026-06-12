@@ -25,3 +25,10 @@ func TestStartFailure(t *testing.T) {
 		t.Errorf("want 127 + err, got code=%d err=%v", code, err)
 	}
 }
+
+func TestEmptyArgv(t *testing.T) {
+	code, _, err := Run(nil)
+	if err == nil || code != 127 {
+		t.Errorf("want 127 + err, got %d %v", code, err)
+	}
+}

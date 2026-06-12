@@ -57,6 +57,10 @@ func Watch(args []string, out, errW io.Writer, version string) int {
 		}
 		return 2
 	}
+	if len(childArgv) == 0 {
+		fmt.Fprintln(errW, "usage: suluctl watch --results <dir> [flags] -- <test command...>")
+		return 2
+	}
 	cfg.Tags, cfg.EnvVars = tags, envVars
 	if results == "" {
 		fmt.Fprintln(errW, "--results is required")

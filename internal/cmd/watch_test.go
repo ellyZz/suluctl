@@ -164,6 +164,15 @@ func TestCleanDirRefusesRootAndHome(t *testing.T) {
 	}
 }
 
+func TestWatchHelpLikeFlagValueIsUsageErrorNotPanic(t *testing.T) {
+	neutralizeEnv(t)
+	var out, errB bytes.Buffer
+	code := Watch([]string{"--results", t.TempDir(), "--launch-name", "--help"}, &out, &errB, "test")
+	if code != 2 {
+		t.Fatalf("want usage error 2, got %d", code)
+	}
+}
+
 func TestWatchHelpExitsZero(t *testing.T) {
 	neutralizeEnv(t)
 	var out, errB bytes.Buffer

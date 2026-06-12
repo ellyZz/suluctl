@@ -39,7 +39,7 @@ func run(args []string) int {
 		return cmd.Upload(args[1:], os.Stdout, os.Stderr, version)
 	case "watch":
 		return cmd.Watch(args[1:], os.Stdout, os.Stderr, version)
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Printf("suluctl %s (commit %s, built %s)\n", version, commit, date)
 		return 0
 	case "help", "-h", "--help":

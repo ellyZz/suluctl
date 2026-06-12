@@ -24,7 +24,7 @@ docker run --rm -v "$PWD:/work" -w /work \
 
 ```bash
 export SULU_URL=https://sulu.example.com
-export SULU_TOKEN=<api token>      # Profile → API tokens
+export SULU_TOKEN=<api token>      # Profile → API keys
 export SULU_PROJECT_ID=1
 
 # one-shot upload after a run
@@ -39,7 +39,7 @@ suluctl watch --results ./allure-results -- mvn test
 | Env var | Flag | Required | Meaning |
 |---|---|---|---|
 | `SULU_URL` | `--url` | yes | Base URL of your Sulu instance, e.g. `https://sulu.example.com` |
-| `SULU_TOKEN` | `--token` | yes | User API token (Profile → API tokens in Sulu) |
+| `SULU_TOKEN` | `--token` | yes | User API token (Profile → API keys in Sulu) |
 | `SULU_PROJECT_ID` | `--project` | yes | Numeric project ID to upload results into |
 | `SULU_LAUNCH_NAME` | `--launch-name` | no | Launch name; server assigns a default when omitted |
 | — | `--env` | no | Environment label attached to the launch |
