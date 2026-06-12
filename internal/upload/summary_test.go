@@ -8,6 +8,28 @@ import (
 	"github.com/ellyZz/suluctl/internal/api"
 )
 
+func TestSummarizePendingLinkCountedAndRendered(t *testing.T) {
+	s := Summarize([]api.FileResult{
+		{FileName: "late-attachment.png", Status: "PENDING_LINK"},
+	}, nil, nil)
+	if s.PendingLink != 1 {
+		t.Fatalf("PENDING_LINK not counted: %+v", s)
+	}
+	var buf bytes.Buffer
+	s.Print(&buf)
+	if !strings.Contains(buf.String(), "pending    1") {
+		t.Errorf("pending row missing:\n%s", buf.String())
+	}
+}
+
+func TestSummarizePendingRowSuppressedWhenZero(t *testing.T) {
+	var buf bytes.Buffer
+	Summarize(nil, nil, nil).Print(&buf)
+	if strings.Contains(buf.String(), "pending") {
+		t.Errorf("pending row must be suppressed at zero:\n%s", buf.String())
+	}
+}
+
 func TestSummarize(t *testing.T) {
 	ledger := []api.FileResult{
 		{FileName: "a-result.json", Status: "PARSED"},

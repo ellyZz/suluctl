@@ -10,7 +10,9 @@ import (
 // Summary aggregates the post-finish ledger (authoritative; the only place
 // UNLINKED appears) with the per-request upload responses (the only place
 // pure-sha256 duplicates appear — they never get ledger rows) and local
-// request-level failures (oversize single-file batches rejected by the server).
+// request-level failures (oversize single-file batches rejected by the server);
+// local rows are always counted as failures regardless of their Status field.
+// Note: a lost-response retry can legitimately make Parsed+Duplicate exceed the local file count (both are real server events).
 type Summary struct {
 	Parsed, Duplicate, Ignored, Failed, Unlinked, PendingLink int
 	FailedFiles                                               []api.FileResult

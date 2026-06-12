@@ -50,6 +50,25 @@ func TestEmptyInput(t *testing.T) {
 	}
 }
 
+func TestBoundaryExactlySoloCapSharesBatch(t *testing.T) {
+	// strict >: a file of exactly SoloFileBytes must SHARE a batch
+	files := []scan.FileState{
+		{Path: "a", Size: SoloFileBytes},
+		{Path: "b", Size: 10},
+	}
+	if b := Batches(files); len(b) != 1 || len(b[0]) != 2 {
+		t.Errorf("exactly-cap file must share, got %v", lens(b))
+	}
+}
+
+func TestBoundaryExactlyMaxBatchBytesStaysOneBatch(t *testing.T) {
+	files := fakeFiles(4, 45<<20)
+	files = append(files, scan.FileState{Path: "last", Size: MaxBatchBytes - 4*(45<<20)})
+	if b := Batches(files); len(b) != 1 || len(b[0]) != 5 {
+		t.Errorf("exact byte-cap sum must stay one batch, got %v", lens(b))
+	}
+}
+
 func lens(b [][]scan.FileState) []int {
 	out := make([]int, len(b))
 	for i, x := range b {
