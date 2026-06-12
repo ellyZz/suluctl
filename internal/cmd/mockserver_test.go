@@ -11,14 +11,15 @@ import (
 
 // mockSulu implements the 4 import endpoints with an in-memory ledger.
 type mockSulu struct {
-	mu        sync.Mutex
-	srv       *httptest.Server
-	finished  bool
-	failFiles int // make the next N /files requests answer 500 (outage simulation)
-	finishReq map[string]string
-	createReq map[string]any
-	ledger    []map[string]string
-	uploads   int
+	mu            sync.Mutex
+	srv           *httptest.Server
+	finished      bool
+	failFiles     int // make the next N /files requests answer 500 (outage simulation)
+	reject413Next int // make the next N /files requests answer 413
+	finishReq     map[string]string
+	createReq     map[string]any
+	ledger        []map[string]string
+	uploads       int
 }
 
 func newMockSulu(t *testing.T) *mockSulu {
@@ -39,6 +40,12 @@ func newMockSulu(t *testing.T) *mockSulu {
 		if m.failFiles > 0 {
 			m.failFiles--
 			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if m.reject413Next > 0 {
+			m.reject413Next--
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			_, _ = w.Write([]byte(`{"timestamp":"x","status":413,"error":"Payload Too Large","message":"Maximum upload size exceeded","path":"/api/import/launches/mock-uuid/files"}`))
 			return
 		}
 		if m.finished {

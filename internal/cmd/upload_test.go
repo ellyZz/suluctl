@@ -2,11 +2,16 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/ellyZz/suluctl/internal/api"
+	"github.com/ellyZz/suluctl/internal/config"
 )
 
 func writeFixture(t *testing.T, dir, name, content string) {
@@ -118,6 +123,82 @@ func TestUpload402IsTotalFailure(t *testing.T) {
 	}
 	if !hasLine(errB.String(), "Workspace is in read-only mode") {
 		t.Errorf("server message must be verbatim:\n%s", errB.String())
+	}
+}
+
+// uploadNoBackoff runs Upload with retry backoff sleeps disabled via the
+// newClient seam (4 attempts × 1+2+4s of real sleeping is too slow for tests).
+func uploadNoBackoff(t *testing.T, args []string, out, errB *bytes.Buffer) int {
+	t.Helper()
+	oldNew := newClient
+	newClient = func(cfg config.Config, version string) *api.Client {
+		c := oldNew(cfg, version)
+		c.Sleep = func(time.Duration) {}
+		return c
+	}
+	t.Cleanup(func() { newClient = oldNew })
+	return Upload(args, out, errB, "test")
+}
+
+func TestUploadSingleFile413IsIsolated(t *testing.T) {
+	neutralizeEnv(t)
+	m := newMockSulu(t)
+	m.reject413Next = 1
+	dir := t.TempDir()
+	writeFixture(t, dir, "a-result.json", "{}")
+	var out, errB bytes.Buffer
+	code := Upload([]string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1"}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("413 on a single-file batch must be per-file, not total: exit %d (stderr: %s)", code, errB.String())
+	}
+	if !hasLine(out.String(), "failed     1") {
+		t.Errorf("summary must show the failed file:\n%s", out.String())
+	}
+	if !hasLine(errB.String(), "rejected") {
+		t.Errorf("stderr must explain the rejection:\n%s", errB.String())
+	}
+}
+
+func TestUploadOutageExhaustedRetriesIsTotalFailure(t *testing.T) {
+	neutralizeEnv(t)
+	m := newMockSulu(t)
+	m.failFiles = 4 // exhausts all 4 attempts of the single batch
+	dir := t.TempDir()
+	writeFixture(t, dir, "a-result.json", "{}")
+	var out, errB bytes.Buffer
+	code := uploadNoBackoff(t, []string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1"}, &out, &errB)
+	if code != 1 {
+		t.Fatalf("exhausted retries on a normal-size single file must be a total failure, got %d", code)
+	}
+}
+
+func TestUpload409StopsFurtherBatches(t *testing.T) {
+	neutralizeEnv(t)
+	m := newMockSulu(t)
+	m.finished = true
+	dir := t.TempDir()
+	// 101 small files → two batches; the 409 on batch 1 must prevent batch 2
+	for i := 0; i < 101; i++ {
+		writeFixture(t, dir, fmt.Sprintf("f%03d-result.json", i), "{}")
+	}
+	var out, errB bytes.Buffer
+	code := Upload([]string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1"}, &out, &errB, "test")
+	if code != 1 {
+		t.Fatalf("want 1, got %d", code)
+	}
+	m.mu.Lock()
+	uploads := m.uploads
+	m.mu.Unlock()
+	if uploads != 0 {
+		t.Errorf("409 must stop the loop before any further batch lands, got %d", uploads)
+	}
+}
+
+func TestUploadHelpExitsZero(t *testing.T) {
+	neutralizeEnv(t)
+	var out, errB bytes.Buffer
+	if code := Upload([]string{"-h"}, &out, &errB, "test"); code != 0 {
+		t.Fatalf("-h must exit 0, got %d", code)
 	}
 }
 

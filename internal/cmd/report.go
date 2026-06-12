@@ -6,23 +6,36 @@ import (
 	"io"
 
 	"github.com/ellyZz/suluctl/internal/api"
+	"github.com/ellyZz/suluctl/internal/config"
 	"github.com/ellyZz/suluctl/internal/scan"
 	"github.com/ellyZz/suluctl/internal/upload"
 )
 
+// newClient is a seam for tests (lets them disable retry backoff sleeps).
+var newClient = func(cfg config.Config, version string) *api.Client {
+	return api.New(cfg.URL, cfg.Token, cfg.Insecure, version)
+}
+
 // isolatableFileError reports whether a request-level error on a SINGLE-file
-// batch should fail just that file rather than the run (spec §6): the
-// oversize/413-class 4xx rejections. Auth/billing/conflict (401/402/403/404/409)
-// are run-level conditions, and network/5xx-after-retries must stay retryable
-// (watch re-sends on later ticks) — none of those are isolated.
-func isolatableFileError(err error) bool {
+// batch should fail just that file rather than the run (spec §6 step 3).
+// Auth/billing/conflict (401/402/403/404/409) are run-level conditions and are
+// never isolated. Retryable-class errors (5xx/429) that survived retries mean a
+// server outage — total failure — EXCEPT for a file above the server's per-file
+// cap, where the 5xx IS the oversize rejection (Spring's servlet-level
+// max-file-size rejects the request before the controller and surfaces as 500).
+// Other 4xx (413-class) are file-level rejections. Network errors are never
+// isolated (watch keeps retrying them on later ticks).
+func isolatableFileError(err error, fileSize int64) bool {
 	var apiErr *api.APIError
 	if !errors.As(err, &apiErr) {
-		return false // network-class error
+		return false
 	}
 	switch apiErr.Status {
 	case 401, 402, 403, 404, 409:
 		return false
+	}
+	if apiErr.Retryable() {
+		return fileSize > upload.SoloFileBytes
 	}
 	return apiErr.Status >= 400 && apiErr.Status < 500
 }

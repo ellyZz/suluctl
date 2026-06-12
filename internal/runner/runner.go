@@ -11,6 +11,8 @@ import (
 // Run starts argv with stdio passthrough, forwards SIGINT/SIGTERM to the child,
 // and blocks until it exits. Returns the child's exit code and whether a signal
 // arrived. err is non-nil only when the child could not be started (code 127).
+// A child killed by a signal yields ExitCode() == -1; callers that pass the
+// code to os.Exit must map negative values (e.g. to 130).
 //
 // Signal notes: an interactive Ctrl+C reaches the child via the terminal's
 // process group as well — the extra forwarded SIGINT is harmless for test

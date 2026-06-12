@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,6 +33,9 @@ func Upload(args []string, out, errW io.Writer, version string) int {
 	fs.Var(&envVars, "env-var", "launch env var K=V (repeatable)")
 	fs.BoolVar(&cfg.Insecure, "insecure", false, "skip TLS certificate verification")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	cfg.Tags, cfg.EnvVars = tags, envVars
@@ -53,7 +57,7 @@ func Upload(args []string, out, errW io.Writer, version string) int {
 		return 1
 	}
 
-	client := api.New(cfg.URL, cfg.Token, cfg.Insecure, version)
+	client := newClient(cfg, version)
 	client.Logf = func(format string, a ...any) { fmt.Fprintf(errW, format+"\n", a...) }
 
 	session, err := client.CreateLaunch(api.LaunchRequest{
@@ -74,7 +78,7 @@ func Upload(args []string, out, errW io.Writer, version string) int {
 	for _, batch := range upload.Batches(files) {
 		res, err := client.UploadFiles(session.LaunchUUID, paths(batch))
 		if err != nil {
-			if len(batch) == 1 && isolatableFileError(err) {
+			if len(batch) == 1 && isolatableFileError(err, batch[0].Size) {
 				// per-file isolation: a request-level rejection of a single
 				// (oversize) file fails that file only, not the run (spec §6)
 				fmt.Fprintf(errW, "file %s rejected: %v\n", batch[0].Path, err)
