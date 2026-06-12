@@ -38,8 +38,7 @@ func run(args []string) int {
 	case "upload":
 		return cmd.Upload(args[1:], os.Stdout, os.Stderr, version)
 	case "watch":
-		fmt.Fprintln(os.Stderr, "not implemented yet")
-		return 2
+		return cmd.Watch(args[1:], os.Stdout, os.Stderr, version)
 	case "version":
 		fmt.Printf("suluctl %s (commit %s, built %s)\n", version, commit, date)
 		return 0
