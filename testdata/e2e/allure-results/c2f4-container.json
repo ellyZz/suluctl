@@ -1,0 +1,19 @@
+{
+  "uuid": "c2f4a9b4-1111-4222-8333-999955556666",
+  "name": "tests.test_login",
+  "children": ["d1e3a9b4-1111-4222-8333-444455556666"],
+  "befores": [
+    {
+      "name": "session_fixture",
+      "status": "passed",
+      "start": 1765531199000,
+      "stop": 1765531200000,
+      "attachments": [
+        { "name": "setup log", "source": "5c4d-attachment.txt", "type": "text/plain" }
+      ]
+    }
+  ],
+  "afters": [],
+  "start": 1765531199000,
+  "stop": 1765531204000
+}

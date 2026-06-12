@@ -1,0 +1,45 @@
+{
+  "uuid": "d1e3a9b4-1111-4222-8333-444455556666",
+  "historyId": "abc123def456",
+  "fullName": "tests.test_login#test_valid_login",
+  "name": "test_valid_login",
+  "status": "failed",
+  "statusDetails": {
+    "message": "AssertionError: expected 200 got 401",
+    "trace": "Traceback (most recent call last):\n  File \"tests/test_login.py\", line 42\n..."
+  },
+  "start": 1765531200000,
+  "stop": 1765531203500,
+  "labels": [
+    { "name": "tag", "value": "smoke" },
+    { "name": "severity", "value": "critical" },
+    { "name": "suite", "value": "test_login" }
+  ],
+  "parameters": [
+    { "name": "browser", "value": "chrome" },
+    { "name": "password", "value": "s3cret", "mode": "masked" }
+  ],
+  "steps": [
+    {
+      "name": "open login page",
+      "status": "passed",
+      "start": 1765531200100,
+      "stop": 1765531201000,
+      "steps": [],
+      "attachments": []
+    },
+    {
+      "name": "submit credentials",
+      "status": "failed",
+      "start": 1765531201000,
+      "stop": 1765531203400,
+      "steps": [],
+      "attachments": [
+        { "name": "screenshot", "source": "9f8e-attachment.png", "type": "image/png" }
+      ]
+    }
+  ],
+  "attachments": [
+    { "name": "request log", "source": "7a6b-attachment.txt", "type": "text/plain" }
+  ]
+}

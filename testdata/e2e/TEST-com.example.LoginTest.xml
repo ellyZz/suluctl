@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.LoginTest" tests="3" failures="1" errors="0" skipped="1"
+           time="4.21" timestamp="2026-06-12T10:00:00">
+  <testcase classname="com.example.LoginTest" name="validLogin" time="1.5"/>
+  <testcase classname="com.example.LoginTest" name="invalidLogin" time="2.6">
+    <failure message="expected 401 got 200">org.opentest4j.AssertionFailedError: expected 401 got 200
+    at com.example.LoginTest.invalidLogin(LoginTest.java:31)</failure>
+    <system-out>attempting login with bad password</system-out>
+  </testcase>
+  <testcase classname="com.example.LoginTest" name="ssoLogin" time="0.0">
+    <skipped message="SSO not configured"/>
+  </testcase>
+</testsuite>
