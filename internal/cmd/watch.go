@@ -23,7 +23,13 @@ var watchTick = 2 * time.Second
 // command's exit code; Sulu being unreachable only degrades streaming.
 func Watch(args []string, out, errW io.Writer, version string) int {
 	cliArgs, childArgv := splitOnDashDash(args)
-	if len(childArgv) == 0 {
+	helpRequested := false
+	for _, a := range cliArgs {
+		if a == "-h" || a == "--help" {
+			helpRequested = true
+		}
+	}
+	if len(childArgv) == 0 && !helpRequested {
 		fmt.Fprintln(errW, "usage: suluctl watch --results <dir> [flags] -- <test command...>")
 		return 2
 	}
@@ -145,6 +151,22 @@ func Watch(args []string, out, errW io.Writer, version string) int {
 		}
 	}
 
+	scanFailStreak := 0
+	doScan := func(scanFn func() ([]scan.FileState, error)) {
+		files, err := scanFn()
+		if err != nil {
+			if scanFailStreak == 0 {
+				fmt.Fprintf(errW, "WARNING: cannot scan %s (%v) — will keep trying\n", results, err)
+			}
+			scanFailStreak++
+			return
+		}
+		scanFailStreak = 0
+		if len(files) > 0 {
+			uploadReady(files)
+		}
+	}
+
 	ticker := time.NewTicker(watchTick)
 	defer ticker.Stop()
 	var res exitResult
@@ -152,9 +174,7 @@ loop:
 	for {
 		select {
 		case <-ticker.C:
-			if files, err := scanner.Scan(); err == nil && len(files) > 0 {
-				uploadReady(files)
-			}
+			doScan(scanner.Scan)
 		case res = <-exitCh:
 			break loop
 		}
@@ -164,9 +184,7 @@ loop:
 	}
 
 	// final sweep: the writer exited, stability is moot
-	if files, err := scanner.SweepAll(); err == nil && len(files) > 0 {
-		uploadReady(files)
-	}
+	doScan(scanner.SweepAll)
 	state := ""
 	if res.interrupted {
 		state = "STOPPED"
@@ -195,7 +213,19 @@ func splitOnDashDash(args []string) (cli, child []string) {
 }
 
 // cleanDir removes the contents of dir (not dir itself). Missing dir is a no-op.
+// Refuses filesystem root and the user's home directory outright — a typo'd
+// --results with --clean must not become rm -rf equivalent.
 func cleanDir(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if abs == string(filepath.Separator) || abs == filepath.VolumeName(abs)+string(filepath.Separator) {
+		return fmt.Errorf("refusing to clean filesystem root %q", abs)
+	}
+	if home, herr := os.UserHomeDir(); herr == nil && abs == home {
+		return fmt.Errorf("refusing to clean home directory %q", abs)
+	}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil

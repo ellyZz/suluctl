@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -148,5 +150,94 @@ func TestWatchCleanEmptiesResultsDir(t *testing.T) {
 		if row["fileName"] == "stale-result.json" {
 			t.Error("--clean must remove stale results before the run")
 		}
+	}
+}
+
+func TestCleanDirRefusesRootAndHome(t *testing.T) {
+	if err := cleanDir("/"); err == nil {
+		t.Error("must refuse filesystem root")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := cleanDir(home); err == nil {
+			t.Error("must refuse home directory")
+		}
+	}
+}
+
+func TestWatchHelpExitsZero(t *testing.T) {
+	neutralizeEnv(t)
+	var out, errB bytes.Buffer
+	if code := Watch([]string{"-h"}, &out, &errB, "test"); code != 0 {
+		t.Fatalf("-h must exit 0, got %d", code)
+	}
+	if !hasLine(errB.String(), "results") {
+		t.Errorf("flag table must be printed:\n%s", errB.String())
+	}
+}
+
+func TestWatch409StopsStreamingButStillFinishes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+
+	m := newMockSulu(t)
+	m.finished = true // every /files answers 409 — session closed under our feet
+	dir := filepath.Join(t.TempDir(), "results")
+
+	var out, errB bytes.Buffer
+	code := Watch([]string{
+		"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", `mkdir -p ` + dir + ` && echo '{"uuid":"x"}' > ` + dir + `/x-result.json && sleep 1 && exit 0`,
+	}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("child exit code must pass through, got %d (stderr: %s)", code, errB.String())
+	}
+	if !hasLine(errB.String(), "session is closed") {
+		t.Errorf("must warn once about the closed session:\n%s", errB.String())
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.uploads != 0 {
+		t.Errorf("no uploads may land on a closed session, got %d", m.uploads)
+	}
+}
+
+func TestWatchInterruptFinishesStopped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signals")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+
+	m := newMockSulu(t)
+	dir := filepath.Join(t.TempDir(), "results")
+
+	// SIGINT ourselves shortly after the child starts; runner.Run has Notify
+	// active, forwards to the child (sh dies on it), and reports interrupted.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+	}()
+
+	var out, errB bytes.Buffer
+	code := Watch([]string{
+		"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", "sleep 30",
+	}, &out, &errB, "test")
+
+	m.mu.Lock()
+	state := m.finishReq["executionState"]
+	m.mu.Unlock()
+	if state != "STOPPED" {
+		t.Errorf("interrupted watch must finish STOPPED, got %q (stderr: %s)", state, errB.String())
+	}
+	if code != 130 {
+		t.Errorf("signal-killed child must map to 130, got %d", code)
 	}
 }
