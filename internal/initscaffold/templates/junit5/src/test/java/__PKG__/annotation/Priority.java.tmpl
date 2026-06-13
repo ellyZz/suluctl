@@ -1,0 +1,16 @@
+package {{.Package}}.annotation;
+
+/**
+ * LOCAL drop-in replacement for {@code ai.sulu.common.dto.Priority}.
+ *
+ * <p>The original lived in {@code ai.sulu.common.dto}; this suite only references the enum
+ * through {@link SuluTest#priority()} (never imports the dto package directly), so co-locating
+ * it here keeps the local annotation self-contained. Values verified via javap to match the
+ * original: LOW, MEDIUM, HIGH, CRITICAL.</p>
+ */
+public enum Priority {
+    LOW,
+    MEDIUM,
+    HIGH,
+    CRITICAL
+}

@@ -1,0 +1,77 @@
+package {{.Package}};
+
+import {{.Package}}.annotation.SuluTest;
+import io.qameta.allure.Allure;
+import org.testng.IInvokedMethod;
+import org.testng.IInvokedMethodListener;
+import org.testng.ITestResult;
+
+import java.lang.reflect.Method;
+
+/**
+ * LOCAL TestNG {@link IInvokedMethodListener} that bridges {@link SuluTest} onto Allure labels.
+ *
+ * <p>This is the replacement for the deleted {@code dev.aisulu:sulu-testng-adapter}. Instead of
+ * POSTing results to the Sulu REST API, it writes Allure labels into the allure-results files
+ * (which suluctl then uploads). Sulu's {@code AllureImportService} reads:</p>
+ * <ul>
+ *   <li>test identity ({@code testId}) from the {@code sulu_id} label,</li>
+ *   <li>tags from {@code tag} labels,</li>
+ *   <li>the human display name from the Allure test-case name.</li>
+ * </ul>
+ *
+ * <p><b>Ordering / why this works:</b> allure-testng's listener
+ * {@code io.qameta.allure.testng.AllureTestNg} (auto-registered via its own
+ * {@code META-INF/services/org.testng.ITestNGListener} SPI entry) starts the Allure
+ * {@code TestResult} in {@code onTestStart}, which TestNG fires <i>before</i>
+ * {@link #beforeInvocation}. So by the time this method runs there is a live Allure test case
+ * to mutate via {@code Allure.label(...)} and {@code Allure.getLifecycle().updateTestCase(...)}.</p>
+ *
+ * <p><b>Registration:</b> this class is listed in the local
+ * {@code src/test/resources/META-INF/services/org.testng.ITestNGListener}. TestNG aggregates all
+ * SPI providers, so it coexists with allure-testng's own entry — no {@code testng.xml} edit and
+ * no {@code @Listeners} on any test class, so the test bodies stay untouched.</p>
+ *
+ * <p>No aspectjweaver is needed: we only set labels and the display name. {@code Sulu.step(...)}
+ * is a plain runtime call (see {@link ai.sulu.common.api.Sulu}).</p>
+ */
+public final class SuluLabelListener implements IInvokedMethodListener {
+
+    @Override
+    public void beforeInvocation(final IInvokedMethod method, final ITestResult testResult) {
+        // Only @Test methods carry @SuluTest; skip @BeforeClass/@BeforeSuite/etc. config methods.
+        if (!method.isTestMethod()) {
+            return;
+        }
+        final Method javaMethod = method.getTestMethod().getConstructorOrMethod().getMethod();
+        if (javaMethod == null) {
+            return;
+        }
+        final SuluTest sulu = javaMethod.getAnnotation(SuluTest.class);
+        if (sulu == null) {
+            return;
+        }
+
+        // Test identity — Sulu's AllureImportService keys testId off the "sulu_id" label first.
+        if (!sulu.id().isBlank()) {
+            Allure.label("sulu_id", sulu.id());
+        }
+
+        // Tags — each becomes a "tag" label; Sulu collects all "tag" labels.
+        for (final String tag : sulu.tags()) {
+            if (tag != null && !tag.isBlank()) {
+                Allure.label("tag", tag);
+            }
+        }
+
+        // Human display name — overrides the TestNG-derived method name on the live test case.
+        if (!sulu.name().isBlank()) {
+            Allure.getLifecycle().updateTestCase(result -> result.setName(sulu.name()));
+        }
+    }
+
+    @Override
+    public void afterInvocation(final IInvokedMethod method, final ITestResult testResult) {
+        // No-op: allure-testng owns status/stop. We only label on the way in.
+    }
+}

@@ -1,0 +1,32 @@
+package {{.Package}}.api;
+
+import io.qameta.allure.Allure;
+
+import java.util.function.Supplier;
+
+/**
+ * LOCAL drop-in replacement for {@code ai.sulu.common.api.Sulu} from the deleted adapter.
+ *
+ * <p>Kept under the original FQN so {@code FindPetsByStatusTests} (the only caller) compiles
+ * unchanged. Both step overloads delegate to Allure so the steps land in the allure-results
+ * files and are imported by Sulu's {@code AllureImportService}.</p>
+ *
+ * <p>Allure's matching overloads are {@code step(String, Allure.ThrowableRunnableVoid)} and
+ * {@code <T> T step(String, Allure.ThrowableRunnable<T>)} — we adapt our {@link Runnable} /
+ * {@link Supplier} args to those functional interfaces with method references.</p>
+ */
+public final class Sulu {
+
+    private Sulu() {
+    }
+
+    /** Run a named step with no return value. */
+    public static void step(final String name, final Runnable body) {
+        Allure.step(name, body::run);
+    }
+
+    /** Run a named step that produces a value. */
+    public static <T> T step(final String name, final Supplier<T> body) {
+        return Allure.step(name, body::get);
+    }
+}
