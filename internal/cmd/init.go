@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/ellyZz/suluctl/internal/config"
 	"github.com/ellyZz/suluctl/internal/initscaffold"
@@ -34,11 +35,44 @@ func Init(args []string, out, errW io.Writer, version string) int {
 		return 2
 	}
 
-	_ = cfg
-	_ = pkg
-	_ = dryRun
-	_ = force
-	// Orchestration is wired in Task 8.
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(errW, err)
+		return 1
+	}
+	var kind initscaffold.Kind
+	if framework != "" {
+		kind = initscaffold.Kind(framework)
+	} else {
+		k, derr := initscaffold.Detect(dir)
+		if derr != nil {
+			fmt.Fprintln(errW, derr)
+			return 1
+		}
+		kind = k
+	}
+	fw := initscaffold.Registry(kind)
+
+	if fw.JavaPackage && pkg == "" {
+		pkg = initscaffold.DetectJavaBasePackage(dir)
+	}
+
+	actions, err := initscaffold.Render(fw, initscaffold.RenderOptions{
+		Dir: dir, Package: pkg, Force: force, DryRun: dryRun,
+	})
+	if err != nil {
+		fmt.Fprintf(errW, "scaffold failed: %v\n", err)
+		return 1
+	}
+	patch, err := initscaffold.PatchManifest(fw, dir, dryRun)
+	if err != nil {
+		fmt.Fprintf(errW, "manifest patch failed: %v\n", err)
+		return 1
+	}
+	if dryRun {
+		fmt.Fprintln(out, "DRY RUN — no files written")
+	}
+	initscaffold.PrintReport(out, fw, actions, patch, dir, cfg)
 	return 0
 }
 
