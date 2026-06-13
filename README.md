@@ -91,6 +91,23 @@ test:
 - **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
 - **The server handles format detection** — allure-results JSON, allure container JSON, JUnit XML, and ZIP archives are all parsed server-side. Unknown file types are silently ignored and never cause an error.
 
+### `suluctl init`
+
+Scaffold the Sulu allure-glue into an existing test project, then print the exact
+`suluctl watch` command to run.
+
+```
+suluctl init [--framework testng|junit5|playwright|pytest|xunit] [--package P] [--dry-run] [--force]
+```
+
+- Autodetects the framework from your build files; `--framework` overrides.
+- Drops the glue (idempotent — re-run is safe; `--force` overwrites managed files).
+- Auto-patches `package.json` / `*.csproj`; prints the snippet for Gradle / Maven / `pyproject.toml` / `playwright.config.ts`.
+- `--package` (Java only) sets the glue package; defaults to your tests' base package, else `sulu`.
+
+Caveats: **Playwright** specs must import `test` from `./support/sulu`; **xUnit** has no
+auto-binding — apply `[SuluTest("<id>")]` to tests or no results are produced.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).
