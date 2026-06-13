@@ -1,0 +1,70 @@
+package {{.Package}};
+
+import {{.Package}}.annotation.SuluTest;
+import io.qameta.allure.Allure;
+import org.junit.jupiter.api.extension.BeforeTestExecutionCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
+
+import java.lang.reflect.Method;
+
+/**
+ * LOCAL JUnit 5 Jupiter extension that bridges {@link SuluTest} onto Allure labels.
+ *
+ * <p>This is the replacement for the deleted {@code dev.aisulu:sulu-junit5-adapter}. Instead of
+ * POSTing results to the Sulu REST API, it writes Allure labels into the allure-results files
+ * (which suluctl then uploads). Sulu's {@code AllureImportService} reads:</p>
+ * <ul>
+ *   <li>test identity ({@code testId}) from the {@code sulu_id} label,</li>
+ *   <li>tags from {@code tag} labels,</li>
+ *   <li>the human display name from the Allure test-case name.</li>
+ * </ul>
+ *
+ * <p><b>Ordering / why this works:</b> the Allure listener
+ * {@code io.qameta.allure.junitplatform.AllureJunitPlatform} (a JUnit <i>Platform</i>
+ * {@code TestExecutionListener}, auto-registered via its own SPI) starts the Allure test case
+ * when the platform reports {@code executionStarted} for the test descriptor — which happens
+ * <i>before</i> Jupiter runs the method body and its {@code BeforeTestExecutionCallback}s. So by
+ * the time {@link #beforeTestExecution} fires, there is a live Allure test case to mutate via
+ * {@code Allure.label(...)} and {@code Allure.getLifecycle().updateTestCase(...)}.</p>
+ *
+ * <p><b>Registration:</b> discovered by JUnit 5 extension auto-detection
+ * ({@code junit.jupiter.extensions.autodetection.enabled=true} in {@code junit-platform.properties})
+ * via the SPI file {@code META-INF/services/org.junit.jupiter.api.extension.Extension}. No
+ * {@code @ExtendWith} on any test class is required, so the ~100 test bodies stay untouched.</p>
+ *
+ * <p>No aspectjweaver is needed: we only set labels and the display name. AspectJ load-time
+ * weaving is only required for Allure's {@code @Step}/{@code @Attachment} annotation-driven AOP,
+ * which this suite does not use ({@code Sulu.step(...)} is a plain runtime call — see
+ * {@link ai.sulu.common.api.Sulu}).</p>
+ */
+public final class SuluAllureExtension implements BeforeTestExecutionCallback {
+
+    @Override
+    public void beforeTestExecution(final ExtensionContext context) {
+        final Method method = context.getTestMethod().orElse(null);
+        if (method == null) {
+            return;
+        }
+        final SuluTest sulu = method.getAnnotation(SuluTest.class);
+        if (sulu == null) {
+            return;
+        }
+
+        // Test identity — Sulu's AllureImportService keys testId off the "sulu_id" label first.
+        if (!sulu.id().isBlank()) {
+            Allure.label("sulu_id", sulu.id());
+        }
+
+        // Tags — each becomes a "tag" label; Sulu collects all "tag" labels.
+        for (final String tag : sulu.tags()) {
+            if (tag != null && !tag.isBlank()) {
+                Allure.label("tag", tag);
+            }
+        }
+
+        // Human display name — overrides the JUnit-derived method name on the live test case.
+        if (!sulu.name().isBlank()) {
+            Allure.getLifecycle().updateTestCase(result -> result.setName(sulu.name()));
+        }
+    }
+}

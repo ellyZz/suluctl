@@ -1,0 +1,38 @@
+package {{.Package}}.annotation;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * LOCAL drop-in replacement for the former {@code dev.aisulu:sulu-java-common} annotation.
+ *
+ * <p>Kept under the original FQN {@code ai.sulu.common.annotation.SuluTest} so the existing
+ * 100 call sites compile with ZERO edits. The reporting is no longer done by a Sulu adapter
+ * that POSTs to the API; instead {@link ai.sulu.common.SuluLabelListener} reads this annotation
+ * and emits Allure labels into the allure-results files, which suluctl uploads.</p>
+ *
+ * <p>Member contract mirrors the original: {@code id}, {@code name}, {@code description},
+ * {@code tags}, {@code priority}. Only {@code id}, {@code name}, {@code tags} are used by
+ * this suite; the rest are kept for source compatibility.</p>
+ */
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface SuluTest {
+
+    /** Stable test identity, e.g. {@code "PETSTORE-006"}. Emitted as the {@code sulu_id} Allure label. */
+    String id();
+
+    /** Human-readable title. Emitted as the Allure display name. */
+    String name() default "";
+
+    /** Optional description (kept for source compatibility; not emitted as a label). */
+    String description() default "";
+
+    /** Tags. Each value emitted as a {@code tag} Allure label. */
+    String[] tags() default {};
+
+    /** Priority (kept for source compatibility; not emitted). */
+    Priority priority() default Priority.MEDIUM;
+}

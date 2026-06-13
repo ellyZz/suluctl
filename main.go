@@ -17,6 +17,7 @@ var (
 const usage = `suluctl — stream test reports into Sulu TMS
 
 Usage:
+  suluctl init   [--framework X] [--package P] [--dry-run] [--force]
   suluctl upload --results <dir|file|glob> [flags]
   suluctl watch  --results <dir> [flags] -- <test command...>
   suluctl version
@@ -39,6 +40,8 @@ func run(args []string) int {
 		return cmd.Upload(args[1:], os.Stdout, os.Stderr, version)
 	case "watch":
 		return cmd.Watch(args[1:], os.Stdout, os.Stderr, version)
+	case "init":
+		return cmd.Init(args[1:], os.Stdout, os.Stderr, version)
 	case "version", "--version", "-v":
 		fmt.Printf("suluctl %s (commit %s, built %s)\n", version, commit, date)
 		return 0
