@@ -12,9 +12,11 @@ type PatchResult struct {
 	Printed string // non-empty when the user must paste this manually
 }
 
-const pkgJSONDeps = `    "@playwright/test": "^1.53.0",
-    "allure-playwright": "3.10.0",
-    "allure-js-commons": "3.10.0",`
+var pkgJSONDeps = []struct{ key, line string }{
+	{`"@playwright/test"`, `    "@playwright/test": "^1.53.0",`},
+	{`"allure-playwright"`, `    "allure-playwright": "3.10.0",`},
+	{`"allure-js-commons"`, `    "allure-js-commons": "3.10.0",`},
+}
 
 const csprojItemGroup = `  <ItemGroup>
     <PackageReference Include="Allure.Net.Commons" Version="2.15.0" />
@@ -39,9 +41,6 @@ func patchPackageJSONFile(path, snippet string, dryRun bool) (PatchResult, error
 		return PatchResult{Printed: snippet}, nil // no package.json -> print
 	}
 	s := string(data)
-	if strings.Contains(s, "allure-playwright") {
-		return PatchResult{Path: path, Changed: false}, nil // already present
-	}
 	idx := strings.Index(s, `"devDependencies"`)
 	if idx < 0 {
 		return PatchResult{Printed: snippet}, nil
@@ -51,9 +50,19 @@ func patchPackageJSONFile(path, snippet string, dryRun bool) (PatchResult, error
 		return PatchResult{Printed: snippet}, nil
 	}
 	at := idx + brace + 1 // just after the '{'
-	body := pkgJSONDeps
+
+	var toAdd []string
+	for _, dep := range pkgJSONDeps {
+		if !strings.Contains(s, dep.key) {
+			toAdd = append(toAdd, dep.line)
+		}
+	}
+	if len(toAdd) == 0 {
+		return PatchResult{Path: path, Changed: false}, nil // all deps already present
+	}
+	body := strings.Join(toAdd, "\n")
 	if firstNonSpaceIsBrace(s[at:]) { // empty "devDependencies": {} — drop the trailing comma so the JSON stays valid
-		body = strings.TrimRight(pkgJSONDeps, ",")
+		body = strings.TrimRight(body, ",")
 	}
 	patched := s[:at] + "\n" + body + s[at:]
 	if !dryRun {

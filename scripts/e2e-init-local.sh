@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Manual E2E: run `suluctl init` against fresh copies of the 5 reference projects.
-# Requires the external-test-frameworks-sulu repo at $FW_REPO (branch feat/suluctl-migration).
+# Requires the external-test-frameworks-sulu repo at $FW_REPO (main — the glue was merged to main).
 # Toolchains are NOT required — this asserts the scaffold, not a full test run.
 set -euo pipefail
 

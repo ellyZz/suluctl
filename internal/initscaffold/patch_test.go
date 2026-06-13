@@ -62,6 +62,28 @@ func TestPatchCsprojAppendsItemGroup(t *testing.T) {
 	}
 }
 
+func TestPatchPackageJSONNoDuplicatePlaywrightKey(t *testing.T) {
+	dir := t.TempDir()
+	// @playwright/test already present (the dominant Playwright path), allure absent.
+	write(t, dir, "package.json", "{\n  \"devDependencies\": {\n    \"@playwright/test\": \"^1.53.0\"\n  }\n}\n")
+	if _, err := PatchManifest(Registry(Playwright), dir, false); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	s := string(data)
+	if !json.Valid(data) {
+		t.Fatalf("not valid JSON:\n%s", s)
+	}
+	if strings.Count(s, `"@playwright/test"`) != 1 {
+		t.Errorf("duplicate @playwright/test key:\n%s", s)
+	}
+	for _, want := range []string{`"allure-playwright"`, `"allure-js-commons"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %s:\n%s", want, s)
+		}
+	}
+}
+
 func TestPatchPrintOnlyAndMissingAnchorFallBackToPrint(t *testing.T) {
 	res, _ := PatchManifest(Registry(TestNG), t.TempDir(), false)
 	if res.Changed || res.Printed == "" {
