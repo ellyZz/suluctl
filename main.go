@@ -17,9 +17,10 @@ var (
 const usage = `suluctl — stream test reports into Sulu TMS
 
 Usage:
-  suluctl init   [--framework X] [--package P] [--dry-run] [--force]
-  suluctl upload --results <dir|file|glob> [flags]
-  suluctl watch  --results <dir> [flags] -- <test command...>
+  suluctl init     [--framework X] [--package P] [--dry-run] [--force]
+  suluctl sync-ids [--framework X] [--package P] [--dir D] [--dry-run] [--force]
+  suluctl upload   --results <dir|file|glob> [flags]
+  suluctl watch    --results <dir> [flags] -- <test command...>
   suluctl version
 
 Config (flags override env): SULU_URL, SULU_TOKEN, SULU_PROJECT_ID, SULU_LAUNCH_NAME.
@@ -42,6 +43,8 @@ func run(args []string) int {
 		return cmd.Watch(args[1:], os.Stdout, os.Stderr, version)
 	case "init":
 		return cmd.Init(args[1:], os.Stdout, os.Stderr, version)
+	case "sync-ids":
+		return cmd.SyncIDs(args[1:], os.Stdout, os.Stderr, version)
 	case "version", "--version", "-v":
 		fmt.Printf("suluctl %s (commit %s, built %s)\n", version, commit, date)
 		return 0

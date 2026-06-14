@@ -108,6 +108,51 @@ suluctl init [--framework testng|junit5|playwright|pytest|xunit] [--package P] [
 Caveats: **Playwright** specs must import `test` from `./support/sulu`; **xUnit** has no
 auto-binding — apply `[SuluTest("<id>")]` to tests or no results are produced.
 
+### `suluctl sync-ids`
+
+After a first real run, auto-created test cases get an ugly id equal to the test's structural
+fullName (e.g. `petstore.PetTests.create`). `sync-ids` pulls the pretty, stable per-project id
+(`<KEY>-<N>`, e.g. `PET-37`) from Sulu and writes it back into your source as the framework's
+`sulu_id` token, so it round-trips cleanly and survives renames.
+
+```
+suluctl sync-ids [--framework testng|junit5|pytest|playwright|xunit] [--package P] [--dir D] [--dry-run] [--force]
+```
+
+The flow composes with `init` + `watch`:
+
+```
+suluctl init                                            # wire the glue (once)
+suluctl watch --results <dir> -- <test cmd>             # run → cases auto-created
+suluctl sync-ids                                        # write @SuluTest(id="PET-37") into source
+suluctl watch --results <dir> -- <test cmd>             # subsequent runs link to the same cases
+```
+
+- Needs `SULU_URL` / `SULU_TOKEN` / `SULU_PROJECT_ID` (a `MEMBER+` API token). Read-only on the
+  server (it only resolves ids); it edits your local source. `--dry-run` previews, `--force`
+  overwrites an existing id, and re-running is a no-op (idempotent).
+- A test that doesn't resolve (404 — never run, or its method/class was renamed so its fullName
+  changed) is reported as **not found** and left unannotated; it is never guessed. No fuzzy matcher
+  in v1.
+
+| Framework | token written | resolve key (fullName) |
+|---|---|---|
+| testng / junit5 | `@SuluTest(id="PET-37")` (+ import) | `<FQCN>.<method>` |
+| pytest | `@sulu_test(id="PET-37")` (+ import) | `tests.<module>#<func>` |
+| playwright | `{ annotation: { type: 'sulu', description: 'PET-37' } }` in the `test(...)` 2nd arg | `<fileRelToTestDir>:<line>:<col>` |
+| xunit | fills an empty `[Fact, SuluTest("")]` → `[Fact, SuluTest("PET-37")]` | `<Namespace>.<Class>.<Method>` |
+
+Per-framework caveats:
+
+- **playwright** — the resolve key is `file:line:col`, so it shifts if a test's line moves. Run
+  `sync-ids` right after `watch`, before further edits; the written `sulu_id` is stable thereafter.
+- **xunit** — a `[Fact]` without `[SuluTest]` emits no result at all, so there's nothing to resolve.
+  Write `[Fact, SuluTest("")]` (empty) to opt a test into auto-creation; `sync-ids` then fills the
+  empty id. Non-empty (your own) ids are never touched.
+
+Requires the Sulu backend resolve endpoint (`GET /api/projects/{id}/test-cases/resolve`), shipped in
+the `sulu` repo Layer-2 backend PR.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).
