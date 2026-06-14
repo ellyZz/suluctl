@@ -205,6 +205,46 @@ func (c *Client) Ledger(launchUUID string) ([]FileResult, error) {
 	return out, err
 }
 
+// ResolveResult mirrors the backend ResolveTestCaseResponse.
+type ResolveResult struct {
+	DisplayID string `json:"displayId"`
+	TestID    string `json:"testId"`
+	Name      string `json:"name"`
+}
+
+// ResolveTestCase maps a structural fullName to its pretty displayId (suluctl sync-ids).
+// A 404 is the normal "no auto-created case for this test" answer → (zero, false, nil), NOT an
+// error. Network / 5xx / other-4xx surface as err.
+func (c *Client) ResolveTestCase(projectID int64, key string) (ResolveResult, bool, error) {
+	var out ResolveResult
+	found := true
+	err := c.withRetry("GET resolve", func() error {
+		found = true
+		path := fmt.Sprintf("/api/projects/%d/test-cases/resolve?key=%s", projectID, url.QueryEscape(key))
+		req, err := c.newRequest(http.MethodGet, path, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := c.JSON.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			found = false
+			return nil // terminal, non-retryable, not an error
+		}
+		if err := checkStatus(resp); err != nil {
+			return err
+		}
+		return json.NewDecoder(resp.Body).Decode(&out)
+	})
+	if err != nil {
+		return ResolveResult{}, false, err
+	}
+	return out, found, nil
+}
+
 // UploadFiles streams the given files as one multipart request (parts named "files",
 // base file names — the server identifies results by content, not path). The body is
 // streamed via io.Pipe, never buffered whole in RAM. Files that fail to open are
