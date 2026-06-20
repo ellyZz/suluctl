@@ -91,6 +91,27 @@ test:
 - **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
 - **The server handles format detection** — allure-results JSON, allure container JSON, JUnit XML, and ZIP archives are all parsed server-side. Unknown file types are silently ignored and never cause an error.
 
+### Console logs (launch-scoped)
+
+`suluctl watch` ships the wrapped command's stdout/stderr to Sulu as
+**launch-scoped logs** — they appear in the launch's Logs panel. This is
+**on by default** and works for any language/framework, since suluctl just
+tees the console of whatever you run.
+
+- Disable with `--ship-console=false` or `SULU_SHIP_CONSOLE=false`.
+- stdout lines are recorded at `INFO`, stderr at `ERROR`.
+- Capture is best-effort: if Sulu is unreachable, your test command's exit
+  code is never affected.
+- Capped at ~50 MB / 200k lines per run (beyond that, logs are truncated with
+  a warning).
+
+> ⚠️ **Security:** console output is sent to Sulu as-is. Do not print secrets,
+> tokens, or PII in tests — or set `SULU_SHIP_CONSOLE=false`.
+
+> ℹ️ This is **launch-scoped** (the whole run's console). For **per-test** logs
+> in each result's Logs panel, use your framework's Allure log integration
+> (see `suluctl init`).
+
 ### `suluctl init`
 
 Scaffold the Sulu allure-glue into an existing test project, then print the exact
