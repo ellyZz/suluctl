@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -212,6 +213,81 @@ func TestWatch409StopsStreamingButStillFinishes(t *testing.T) {
 	defer m.mu.Unlock()
 	if m.uploads != 0 {
 		t.Errorf("no uploads may land on a closed session, got %d", m.uploads)
+	}
+}
+
+func TestWatchShipsConsoleLogs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+
+	m := newMockSulu(t)
+	dir := filepath.Join(t.TempDir(), "results")
+
+	var out, errB bytes.Buffer
+	code := Watch([]string{
+		"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", `echo console-line-1 && echo err-line 1>&2 && exit 0`,
+	}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, errB.String())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var msgs, levels []string
+	for _, e := range m.logs {
+		msgs = append(msgs, e["message"].(string))
+		levels = append(levels, e["level"].(string))
+	}
+	joined := strings.Join(msgs, "\n")
+	if !strings.Contains(joined, "console-line-1") {
+		t.Errorf("stdout line not shipped: %v", msgs)
+	}
+	gotErr := false
+	for i, msg := range msgs {
+		if msg == "err-line" && levels[i] == "ERROR" {
+			gotErr = true
+		}
+	}
+	if !gotErr {
+		t.Errorf("stderr line must ship at ERROR: msgs=%v levels=%v", msgs, levels)
+	}
+	for _, e := range m.logs {
+		if e["source"] != "suluctl-console" {
+			t.Errorf("source must be suluctl-console, got %v", e["source"])
+		}
+	}
+}
+
+func TestWatchShipConsoleDisabledShipsNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+
+	m := newMockSulu(t)
+	dir := filepath.Join(t.TempDir(), "results")
+
+	var out, errB bytes.Buffer
+	code := Watch([]string{
+		"--results", dir, "--ship-console=false", "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", `echo nope && exit 0`,
+	}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.logs) != 0 {
+		t.Errorf("--ship-console=false must ship nothing, got %v", m.logs)
 	}
 }
 
