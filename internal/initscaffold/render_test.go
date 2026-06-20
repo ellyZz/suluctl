@@ -56,6 +56,41 @@ func TestRenderDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+func TestRenderTestNGWithLogsScaffoldsAppenderAndFlush(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme.qa", WithLogs: true}); err != nil {
+		t.Fatal(err)
+	}
+	appender := filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")
+	ab, err := os.ReadFile(appender)
+	if err != nil {
+		t.Fatalf("appender not written with WithLogs: %v", err)
+	}
+	for _, want := range []string{"package com.acme.qa;", "@Plugin(name = \"SuluLog\"", "drainCurrentThread"} {
+		if !strings.Contains(string(ab), want) {
+			t.Errorf("appender missing %q", want)
+		}
+	}
+	lb, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLabelListener.java"))
+	if !strings.Contains(string(lb), `Allure.addAttachment("log", "text/plain"`) {
+		t.Errorf("listener afterInvocation flush missing:\n%s", lb)
+	}
+}
+
+func TestRenderTestNGWithoutLogsOmitsAppender(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme.qa"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); !os.IsNotExist(err) {
+		t.Error("appender must NOT be scaffolded when WithLogs is false")
+	}
+	lb, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLabelListener.java"))
+	if strings.Contains(string(lb), "addAttachment") {
+		t.Errorf("listener must stay a no-op when WithLogs is false:\n%s", lb)
+	}
+}
+
 func hasVerb(actions []Action, absPath, verb string) bool {
 	for _, a := range actions {
 		if strings.HasSuffix(absPath, a.Path) && a.Verb == verb {

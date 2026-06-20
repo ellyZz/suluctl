@@ -10,10 +10,11 @@ import (
 )
 
 type RenderOptions struct {
-	Dir     string
-	Package string
-	Force   bool
-	DryRun  bool
+	Dir      string
+	Package  string
+	Force    bool
+	DryRun   bool
+	WithLogs bool
 }
 
 type Action struct {
@@ -35,6 +36,12 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 		if fw.JavaPackage {
 			rel = strings.Replace(rel, "__PKG__", pkgPath, 1)
 		}
+		if strings.Contains(rel, "_logs/") {
+			if !opt.WithLogs {
+				return nil // log-only glue, not requested
+			}
+			rel = strings.Replace(rel, "_logs/", "", 1)
+		}
 		isTmpl := strings.HasSuffix(rel, ".tmpl")
 		rel = strings.TrimSuffix(rel, ".tmpl")
 
@@ -49,7 +56,10 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 				return perr
 			}
 			var buf bytes.Buffer
-			if eerr := tpl.Execute(&buf, struct{ Package string }{opt.Package}); eerr != nil {
+			if eerr := tpl.Execute(&buf, struct {
+				Package  string
+				WithLogs bool
+			}{opt.Package, opt.WithLogs}); eerr != nil {
 				return eerr
 			}
 			content = buf.Bytes()
