@@ -29,6 +29,16 @@ func TestDetectLog4j2(t *testing.T) {
 	if !DetectLog4j2(dir) {
 		t.Error("build.gradle with log4j-core must detect log4j2")
 	}
+
+	// group-only: "org.apache.logging.log4j" present but "log4j-core" absent — exercises the second OR branch
+	dir2 := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir2, "pom.xml"),
+		[]byte("<dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-bom</artifactId></dependency>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !DetectLog4j2(dir2) {
+		t.Error("group-only org.apache.logging.log4j (no log4j-core) must still detect log4j2")
+	}
 }
 
 func TestDetect(t *testing.T) {

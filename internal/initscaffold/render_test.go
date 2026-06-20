@@ -120,6 +120,18 @@ func TestRenderJUnit5WithoutLogsOmitsAppender(t *testing.T) {
 	}
 }
 
+func TestRenderWithLogsPreservesUnderscoreLogsPackageSegment(t *testing.T) {
+	dir := t.TempDir()
+	// a (contrived) Java package whose path contains a literal "_logs" segment
+	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme._logs.qa", WithLogs: true}); err != nil {
+		t.Fatal(err)
+	}
+	// the appender must land in the real package dir, with the package's own _logs segment intact
+	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/_logs/qa/SuluLogAppender.java")); err != nil {
+		t.Errorf("appender path corrupted by the _logs marker strip: %v", err)
+	}
+}
+
 func hasVerb(actions []Action, absPath, verb string) bool {
 	for _, a := range actions {
 		if strings.HasSuffix(absPath, a.Path) && a.Verb == verb {

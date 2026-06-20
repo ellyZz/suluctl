@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
  * {@link #drainCurrentThread()}. Registered in log4j2.xml as &lt;SuluLog/&gt; under a
  * &lt;Configuration packages="{{.Package}}"&gt; so the plugin is discoverable.
  *
- * // (identical to the TestNG glue's appender — separate file because init renders per framework)
+ * (identical to the TestNG glue's appender — separate file because init renders per framework)
  */
 @Plugin(name = "SuluLog", category = Core.CATEGORY_NAME, elementType = Appender.ELEMENT_TYPE)
 public final class SuluLogAppender extends AbstractAppender {
