@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -260,6 +261,13 @@ func TestWatchShipsConsoleLogs(t *testing.T) {
 	for _, e := range m.logs {
 		if e["source"] != "suluctl-console" {
 			t.Errorf("source must be suluctl-console, got %v", e["source"])
+		}
+	}
+	tsRe := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$`)
+	for _, e := range m.logs {
+		ts, _ := e["timestamp"].(string)
+		if !tsRe.MatchString(ts) {
+			t.Errorf("timestamp must be LocalDateTime-shaped (no offset), got %q", ts)
 		}
 	}
 }

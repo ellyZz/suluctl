@@ -104,6 +104,9 @@ tees the console of whatever you run.
   code is never affected.
 - Capped at ~50 MB / 200k lines per run (beyond that, logs are truncated with
   a warning).
+- **JUnit XML uploaders:** if the uploaded XML contains `<system-out>`/`<system-err>`,
+  the server ships those suite-level lines a second time (as `junit-import-suite` source)
+  — console output can appear twice in the Logs panel for JUnit XML runs.
 
 > ⚠️ **Security:** console output is sent to Sulu as-is. Do not print secrets,
 > tokens, or PII in tests — or set `SULU_SHIP_CONSOLE=false`.

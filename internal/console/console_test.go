@@ -49,3 +49,16 @@ func TestCapTruncates(t *testing.T) {
 		t.Errorf("must cap at %d entries, got %d", MaxLines, n)
 	}
 }
+
+func TestForceEmitsOversizedNewlinelessWrite(t *testing.T) {
+	c := New()
+	w := c.Writer("INFO")
+	big := make([]byte, maxLineBytes+100)
+	for i := range big {
+		big[i] = 'a'
+	}
+	w.Write(big) // no newline at all — must be force-emitted, not buffered forever
+	if len(c.Entries()) == 0 {
+		t.Fatal("oversized newline-less write must be force-emitted, not buffered indefinitely")
+	}
+}

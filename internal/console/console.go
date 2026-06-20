@@ -14,6 +14,8 @@ import (
 const (
 	MaxLines = 200_000
 	MaxBytes = 50 << 20 // 50 MB
+
+	maxLineBytes = 1 << 20 // 1 MB — force-emit an over-long newline-less partial so LineWriter.buf can't grow without bound
 )
 
 // Entry is one captured, non-blank line.
@@ -83,6 +85,10 @@ func (w *LineWriter) Write(p []byte) (int, error) {
 		}
 		w.emit(w.buf[:i])
 		w.buf = w.buf[i+1:]
+	}
+	if len(w.buf) >= maxLineBytes {
+		w.emit(w.buf)
+		w.buf = w.buf[:0]
 	}
 	return len(p), nil
 }
