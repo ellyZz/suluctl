@@ -17,6 +17,20 @@ func write(t *testing.T, dir, name, body string) {
 	}
 }
 
+func TestDetectLog4j2(t *testing.T) {
+	dir := t.TempDir()
+	if DetectLog4j2(dir) {
+		t.Error("empty dir must not detect log4j2")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"),
+		[]byte("dependencies { testImplementation 'org.apache.logging.log4j:log4j-core:2.23.1' }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !DetectLog4j2(dir) {
+		t.Error("build.gradle with log4j-core must detect log4j2")
+	}
+}
+
 func TestDetect(t *testing.T) {
 	cases := []struct {
 		name  string

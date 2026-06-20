@@ -57,8 +57,10 @@ func Init(args []string, out, errW io.Writer, version string) int {
 		pkg = initscaffold.DetectJavaBasePackage(dir)
 	}
 
+	withLogs := fw.JavaPackage && initscaffold.DetectLog4j2(dir)
+
 	actions, err := initscaffold.Render(fw, initscaffold.RenderOptions{
-		Dir: dir, Package: pkg, Force: force, DryRun: dryRun,
+		Dir: dir, Package: pkg, Force: force, DryRun: dryRun, WithLogs: withLogs,
 	})
 	if err != nil {
 		fmt.Fprintf(errW, "scaffold failed: %v\n", err)
@@ -68,6 +70,11 @@ func Init(args []string, out, errW io.Writer, version string) int {
 	if err != nil {
 		fmt.Fprintf(errW, "manifest patch failed: %v\n", err)
 		return 1
+	}
+	if withLogs {
+		fw.ManualSteps = append(fw.ManualSteps, initscaffold.Log4j2SetupSteps(pkg)...)
+	} else if fw.JavaPackage {
+		fw.ManualSteps = append(fw.ManualSteps, initscaffold.Log4j2HintSteps()...)
 	}
 	if dryRun {
 		fmt.Fprintln(out, "DRY RUN — no files written")

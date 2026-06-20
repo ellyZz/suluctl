@@ -56,6 +56,33 @@ func TestInitPlaywrightEndToEnd(t *testing.T) {
 	}
 }
 
+func TestInitTestNGWithLog4j2ScaffoldsLogGlue(t *testing.T) {
+	neutralizeEnv(t)
+	dir := t.TempDir()
+	// a TestNG project that uses log4j2
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"),
+		[]byte("dependencies {\n  testImplementation 'org.testng:testng:7.10.2'\n  testImplementation 'org.apache.logging.log4j:log4j-core:2.23.1'\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errB bytes.Buffer
+	code := Init([]string{"--package", "com.acme.qa"}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%s", code, errB.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); err != nil {
+		t.Errorf("SuluLogAppender not scaffolded for a log4j2 TestNG project: %v", err)
+	}
+	if !strings.Contains(out.String(), "<SuluLog") {
+		t.Errorf("report must print the log4j2.xml registration step:\n%s", out.String())
+	}
+}
+
 func TestInitDryRunWritesNothing(t *testing.T) {
 	neutralizeEnv(t)
 	dir := t.TempDir()
