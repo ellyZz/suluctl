@@ -60,6 +60,7 @@ Signal forwarding and exit-code mapping stay exactly as today (`runner.go:29-53`
 
 - **stdout and stderr are captured separately** to preserve level: `stdout → INFO`, `stderr → ERROR` (matches the JUnit importer's `system-out`→INFO / `system-err`→ERROR convention). **No per-line level parsing** — robust and language-agnostic.
 - Each captured stream is read by a line scanner that **stamps `time.Now()` per line at read time** (correct ordering/timestamps; the backend returns launch logs in chronological order keyed on timestamp). Lines from both scanners are appended to a single, **mutex-guarded** NDJSON temp file (`{ts, level, message}` per line) so memory stays bounded on large runs.
+- **Blank lines are dropped; every entry carries a non-null `level` + `timestamp`.** The backend DTO is `@NotBlank message` / `@NotNull level` / `@NotNull timestamp` (`CreateLogEventRequest.java`), so a single blank line or null field would `400` the whole batch. Filter blank lines at scan time (after stripping a trailing `\r` for Windows); `level` is always INFO/ERROR, `timestamp` always the read-time stamp.
 
 ### 4.2 Ship
 
@@ -79,12 +80,14 @@ func (c *Client) AppendLaunchLogs(launchID int64, entries []LogEntry) error
 (`timestamp` = ISO-8601 local date-time, parsed by `LocalDateTime`; `level` ∈ TRACE/DEBUG/INFO/WARN/ERROR — we emit only INFO/ERROR; `source` = `"suluctl-console"`, distinct from `allure-log-attachment` / `junit-import-suite`.)
 
 - `watch` already holds `session.LaunchID` (numeric `int64`) from `CreateLaunch` (`watch.go:88-104`, `api.go:28-29`) — the sink is addressable with zero extra calls.
-- **Flush once, at child exit**, after the final file sweep and before/with `finishAndReport` (`watch.go:190-196`). Read the temp NDJSON back and POST in **bounded batches** (≈500 lines or ≈256 KB per request) — the V1 log endpoint has no documented payload cap, so the client batches defensively.
+- **Flush once, at child exit**, after the final file sweep and **strictly before** `finishAndReport` (which calls `Finish` and flips the launch out of IN_PROGRESS; `watch.go:190-196`, `report.go:50`). Read the temp NDJSON back and POST in **bounded batches** (≈500 lines or ≈256 KB per request) — the V1 log endpoint has no documented payload cap, so the client batches defensively.
+- **Single pass, no retry (deliberate).** The launch-log endpoint is not idempotent (no dedup), so a re-POST would duplicate. A mid-flush failure therefore drops the remaining batches with a rate-limited WARNING rather than risk double logs — partial loss is the chosen tradeoff over duplication.
 
 ### 4.3 Default & kill-switch
 
 - **ON by default.** No existing users to surprise; the goal is that `watch` "just ships logs."
-- Kill-switch: `--ship-console=false` / env `SULU_SHIP_CONSOLE=false` disables capture (runner gets nil writers → today's exact passthrough).
+- Kill-switch: `--ship-console=false` / env `SULU_SHIP_CONSOLE=false` disables capture (runner gets nil writers → today's exact passthrough). `SULU_SHIP_CONSOLE` is read in `config.FromEnv` alongside the existing config.
+- **Security/privacy (default-ON implication).** The tee ships **all** stdout/stderr to Sulu — including anything a test prints (tokens, credentials, env dumps, PII). Accepted as the default (no users yet), but it MUST be called out in `--help`/README: *"console output is sent to Sulu — do not print secrets, or set `SULU_SHIP_CONSOLE=false`."* No client-side redaction in v1 (YAGNI; revisit on demand).
 
 ### 4.4 Fail-safe (load-bearing — matches existing `watch` philosophy)
 
@@ -167,6 +170,8 @@ public void afterInvocation(final IInvokedMethod method, final ITestResult testR
 
 JUnit5 is the mirror: a `SuluLogAppender` + flush in `SuluAllureExtension`'s `afterEach` (it already exists as scaffolded glue).
 
+**Capture-scope limit (document explicitly).** The per-thread `ThreadLocal` buffer captures only logs emitted on the **test method's own thread**. Logs from app-spawned threads, executor pools, async callbacks, or `@BeforeMethod`/`@AfterMethod` invocations are not in that thread's buffer and are absent from the per-test attachment. For suites where the system-under-test logs on its own threads, route the buffer by the MDC `sulu_id` (already present in the reference suite's `%X{sulu_id}` layout) instead of a raw `ThreadLocal` — MDC keying survives the cross-thread/parallel case. v1 ships the `ThreadLocal` form with this limit documented; MDC-keyed routing is the upgrade path.
+
 **(c) `Registry()` change** (`scaffold.go`, TestNG/JUnit5 cases): add the `log4j-core` dependency to the printed snippet and an appender-registration `ManualSteps` entry:
 
 ```go
@@ -176,8 +181,9 @@ ManifestSnippet: "Add to build.gradle:\n" +
     "  test { systemProperty 'allure.results.directory', \"$buildDir/allure-results\" }",
 ManualSteps: []string{
     "Register the appender in src/test/resources/log4j2.xml:\n" +
-    "    <SuluLog name=\"SuluLog\"><PatternLayout pattern=\"%d{HH:mm:ss.SSS} %-5level %logger{1} - %msg%n\"/></SuluLog>\n" +
-    "  then add <AppenderRef ref=\"SuluLog\"/> inside <Root>.",
+    "    set <Configuration packages=\"<glue package>\"> so log4j2 can resolve the custom element,\n" +
+    "    add <SuluLog name=\"SuluLog\"><PatternLayout pattern=\"%d{HH:mm:ss.SSS} %-5level %logger{1} - %msg%n\"/></SuluLog>,\n" +
+    "    then add <AppenderRef ref=\"SuluLog\"/> inside <Root>.",
 },
 ```
 
@@ -189,6 +195,8 @@ The scaffolder **creates** files but cannot safely merge an arbitrary existing X
 - **`log4j2.xml` present** (e.g. the reference suite) → print the `<SuluLog/>` + `<AppenderRef/>` snippet as a `ManualSteps` entry for the user to paste.
 
 No new merge mechanism is introduced.
+
+**Plugin discovery (load-bearing).** log4j2 resolves the custom `<SuluLog>` element only if the plugin is discoverable. Two paths: (a) the `log4j-core` annotation processor generates `META-INF/.../Log4j2Plugins.dat` at compile time (automatic only when `log4j-core` is on the annotation-processor path — not guaranteed across IDE/incremental builds), or (b) explicit `<Configuration packages="<glue package>">`. The scaffolded `log4j2.xml` / the printed `ManualSteps` MUST set `packages="<glue package>"` on `<Configuration>` (belt-and-braces) so registration never depends on the processor — otherwise the run fails with *"no SuluLog plugin"*.
 
 ### 5.4 pytest / Playwright — near-free
 
@@ -211,14 +219,18 @@ The scaffolded glue emits exactly one per-test attachment: **name `log`, MIME `t
 
 ## 7. Test plan
 
-- **O1 unit:** `runner.Run` tees to capture writers while preserving console echo + exit code + signal forwarding; nil writers ⇒ byte-identical passthrough. Line scanner stamps per line; stdout→INFO, stderr→ERROR. Batcher splits at the line/byte thresholds.
+- **O1 unit:** `runner.Run` tees to capture writers while preserving console echo + exit code + signal forwarding; nil writers ⇒ byte-identical passthrough. Line scanner stamps per line; stdout→INFO, stderr→ERROR; blank lines dropped so no `@NotBlank`-violating entry reaches the POST. Batcher splits at the line/byte thresholds.
 - **O1 contract:** `AppendLaunchLogs` against an `httptest` mock asserting the `POST /api/launches/{id}/logs` body shape; fail-safe paths (network error, 5xx, 409) never change the child exit code.
 - **O1 live E2E:** `watch -- <cmd that prints to stdout/stderr>` against a local backend → assert launch-scoped rows appear via `GET /api/launches/{id}/logs`.
-- **O2 render:** `Render(TestNG/JUnit5)` writes `SuluLogAppender.java` + the filled listener; `golden` test on the emitted Java; `Registry` snippet/ManualSteps include the log4j-core dep + the `<SuluLog/>` registration.
+- **O2 render:** `Render(TestNG/JUnit5)` writes `SuluLogAppender.java` + the filled listener; `golden` test on the emitted Java; `Registry` snippet/ManualSteps include the log4j-core dep + the `<SuluLog/>` registration **+ `packages=` on `<Configuration>`**.
 - **O2 live E2E:** scaffold into a throwaway log4j2 project, run a test that logs, assert a `log`/`text/plain` attachment in allure-results and (after `suluctl upload`) per-test rows via `GET /api/test-results/{id}/logs`.
 
 ## 8. Risks
 
-- **Large runs (O1):** unbounded console → temp-file streaming + bounded batches mitigate; document a soft cap.
+- **Large runs (O1):** unbounded console → temp-file streaming + bounded batches mitigate. Soft cap **≈50 MB / 200k lines** captured per run; beyond it, warn once and stop appending (never OOM). Temp file lives under `os.TempDir()`, removed on normal exit **and** via a deferred cleanup that also fires on SIGINT/SIGTERM (the runner already forwards signals).
+- **Double-surfacing (O1):** a suite uploading BOTH a console tee (O1, launch-scoped) AND JUnit suite-level `<system-out>` (also launch-scoped, `junit-import-suite`) sees the same lines twice at launch level. Not applicable to allure-results suites (the reference case); document for JUnit-XML uploaders.
+- **Security/PII (O1):** default-ON ships all console output — see §4.3; documented, no v1 redaction.
+- **Plugin discovery (O2):** a custom `@Plugin` appender unresolved by log4j2 → config failure; mitigated by `packages="<glue pkg>"` on `<Configuration>` (§5.3).
+- **Capture scope (O2):** the per-test buffer misses non-test-thread logs (§5.2); MDC-`sulu_id`-keyed routing is the upgrade path.
 - **MIME drift (O2):** a `text/plain; charset=…` suffix silently breaks routing → the appender emits bare `text/plain`; covered by an E2E assertion.
 - **In-process capture (O1):** sparse console for some frameworks — documented; O2 is the answer for per-test fidelity.
