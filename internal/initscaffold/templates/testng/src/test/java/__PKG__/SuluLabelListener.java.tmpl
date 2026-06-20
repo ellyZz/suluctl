@@ -72,6 +72,17 @@ public final class SuluLabelListener implements IInvokedMethodListener {
 
     @Override
     public void afterInvocation(final IInvokedMethod method, final ITestResult testResult) {
+{{- if .WithLogs}}
+        if (!method.isTestMethod()) {
+            return;
+        }
+        final String log = SuluLogAppender.drainCurrentThread();
+        if (!log.isBlank()) {
+            // Sulu importer contract (PR #152): name=log, MIME exactly text/plain, ext .txt
+            Allure.addAttachment("log", "text/plain", log, ".txt");
+        }
+{{- else}}
         // No-op: allure-testng owns status/stop. We only label on the way in.
+{{- end}}
     }
 }

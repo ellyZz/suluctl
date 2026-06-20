@@ -20,6 +20,7 @@ type mockSulu struct {
 	createReq     map[string]any
 	ledger        []map[string]string
 	uploads       int
+	logs          []map[string]any
 }
 
 func newMockSulu(t *testing.T) *mockSulu {
@@ -77,6 +78,13 @@ func newMockSulu(t *testing.T) *mockSulu {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(m.ledger)
+	})
+	mux.HandleFunc("POST /api/launches/42/logs", func(w http.ResponseWriter, r *http.Request) {
+		var batch []map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&batch)
+		m.mu.Lock()
+		m.logs = append(m.logs, batch...)
+		m.mu.Unlock()
 	})
 	m.srv = httptest.NewServer(mux)
 	t.Cleanup(m.srv.Close)

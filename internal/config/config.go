@@ -18,6 +18,7 @@ type Config struct {
 	Tags        []string
 	EnvVars     map[string]string
 	Insecure    bool
+	ShipConsole bool
 }
 
 // FromEnv reads SULU_URL, SULU_TOKEN, SULU_PROJECT_ID, SULU_LAUNCH_NAME.
@@ -31,6 +32,12 @@ func FromEnv() Config {
 	if v := os.Getenv("SULU_PROJECT_ID"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
 			cfg.ProjectID = id
+		}
+	}
+	cfg.ShipConsole = true
+	if v := os.Getenv("SULU_SHIP_CONSOLE"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.ShipConsole = b
 		}
 	}
 	return cfg

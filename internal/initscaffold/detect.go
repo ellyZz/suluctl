@@ -49,6 +49,13 @@ func Detect(dir string) (Kind, error) {
 	}
 }
 
+// DetectLog4j2 reports whether the project's build file references log4j2-core,
+// which the scaffolded SuluLogAppender requires to compile. Best-effort grep.
+func DetectLog4j2(dir string) bool {
+	build := readIfAny(dir, "build.gradle", "build.gradle.kts", "pom.xml")
+	return strings.Contains(build, "log4j-core") || strings.Contains(build, "org.apache.logging.log4j")
+}
+
 // readIfAny returns the concatenated contents of the first existing names.
 func readIfAny(dir string, names ...string) string {
 	var b strings.Builder

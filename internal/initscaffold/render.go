@@ -10,10 +10,11 @@ import (
 )
 
 type RenderOptions struct {
-	Dir     string
-	Package string
-	Force   bool
-	DryRun  bool
+	Dir      string
+	Package  string
+	Force    bool
+	DryRun   bool
+	WithLogs bool
 }
 
 type Action struct {
@@ -32,6 +33,15 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 			return err
 		}
 		rel := strings.TrimPrefix(p, root+"/")
+		// Handle the log-glue marker BEFORE package substitution: at this point the
+		// package is still the literal "__PKG__", so the only "_logs/" present is our
+		// marker (a user package segment named "_logs" can't interfere).
+		if strings.Contains(rel, "_logs/") {
+			if !opt.WithLogs {
+				return nil // log-only glue, not requested
+			}
+			rel = strings.Replace(rel, "_logs/", "", 1)
+		}
 		if fw.JavaPackage {
 			rel = strings.Replace(rel, "__PKG__", pkgPath, 1)
 		}
@@ -49,7 +59,10 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 				return perr
 			}
 			var buf bytes.Buffer
-			if eerr := tpl.Execute(&buf, struct{ Package string }{opt.Package}); eerr != nil {
+			if eerr := tpl.Execute(&buf, struct {
+				Package  string
+				WithLogs bool
+			}{opt.Package, opt.WithLogs}); eerr != nil {
 				return eerr
 			}
 			content = buf.Bytes()

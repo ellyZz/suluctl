@@ -11,6 +11,7 @@ import (
 
 	"github.com/ellyZz/suluctl/internal/api"
 	"github.com/ellyZz/suluctl/internal/config"
+	"github.com/ellyZz/suluctl/internal/console"
 	"github.com/ellyZz/suluctl/internal/runner"
 	"github.com/ellyZz/suluctl/internal/scan"
 	"github.com/ellyZz/suluctl/internal/upload"
@@ -51,6 +52,8 @@ func Watch(args []string, out, errW io.Writer, version string) int {
 	fs.Var(&envVars, "env-var", "launch env var K=V (repeatable)")
 	fs.BoolVar(&cfg.Insecure, "insecure", false, "skip TLS certificate verification")
 	fs.BoolVar(&clean, "clean", false, "empty the results dir before starting the command")
+	fs.BoolVar(&cfg.ShipConsole, "ship-console", cfg.ShipConsole,
+		"ship the wrapped command's console output to Sulu as launch-scoped logs (env SULU_SHIP_CONSOLE; default true)")
 	if err := fs.Parse(cliArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -110,8 +113,18 @@ func Watch(args []string, out, errW io.Writer, version string) int {
 		err         error
 	}
 	exitCh := make(chan exitResult, 1)
+	var capr *console.Capturer
+	var capOut, capErr *console.LineWriter
+	var childOut, childErr io.Writer // nil => runner inherits os.Stdout/os.Stderr
+	if cfg.ShipConsole {
+		capr = console.New()
+		capOut = capr.Writer("INFO")
+		capErr = capr.Writer("ERROR")
+		childOut = io.MultiWriter(os.Stdout, capOut)
+		childErr = io.MultiWriter(os.Stderr, capErr)
+	}
 	go func() {
-		code, intr, err := runner.Run(childArgv)
+		code, intr, err := runner.RunWithCapture(childArgv, childOut, childErr)
 		exitCh <- exitResult{code, intr, err}
 	}()
 
@@ -193,6 +206,11 @@ loop:
 	if res.interrupted {
 		state = "STOPPED"
 	}
+	if cfg.ShipConsole && capr != nil {
+		capOut.Flush()
+		capErr.Flush()
+		shipConsole(client, session.LaunchID, capr, errW)
+	}
 	finishAndReport(client, session, responses, local, state, false, out, errW, cfg.URL)
 	return mapExitCode(res.code)
 }
@@ -214,6 +232,34 @@ func splitOnDashDash(args []string) (cli, child []string) {
 		}
 	}
 	return args, nil
+}
+
+// shipConsole best-effort posts the captured console as launch-scoped logs.
+// Failures are warnings only — they never affect the wrapped command's exit code.
+func shipConsole(client *api.Client, launchID int64, capr *console.Capturer, errW io.Writer) {
+	if capr.Truncated() {
+		fmt.Fprintln(errW, "WARNING: console output exceeded the capture cap — shipped logs are truncated")
+	}
+	entries := toLogEntries(capr.Entries())
+	if len(entries) == 0 {
+		return
+	}
+	if err := client.AppendLaunchLogs(launchID, entries); err != nil {
+		fmt.Fprintf(errW, "WARNING: shipping console logs failed (%v)\n", err)
+	}
+}
+
+func toLogEntries(in []console.Entry) []api.LogEntry {
+	out := make([]api.LogEntry, len(in))
+	for i, e := range in {
+		out[i] = api.LogEntry{
+			Timestamp: e.TS.Format("2006-01-02T15:04:05.000"),
+			Level:     e.Level,
+			Message:   e.Message,
+			Source:    "suluctl-console",
+		}
+	}
+	return out
 }
 
 // cleanDir removes the contents of dir (not dir itself). Missing dir is a no-op.
