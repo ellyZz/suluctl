@@ -37,7 +37,7 @@ import java.lang.reflect.Method;
  * which this suite does not use ({@code Sulu.step(...)} is a plain runtime call — see
  * {@link ai.sulu.common.api.Sulu}).</p>
  */
-public final class SuluAllureExtension implements BeforeTestExecutionCallback {
+public final class SuluAllureExtension implements BeforeTestExecutionCallback{{if .WithLogs}}, org.junit.jupiter.api.extension.AfterTestExecutionCallback{{end}} {
 
     @Override
     public void beforeTestExecution(final ExtensionContext context) {
@@ -67,4 +67,15 @@ public final class SuluAllureExtension implements BeforeTestExecutionCallback {
             Allure.getLifecycle().updateTestCase(result -> result.setName(sulu.name()));
         }
     }
+{{- if .WithLogs}}
+
+    @Override
+    public void afterTestExecution(final ExtensionContext context) {
+        final String log = SuluLogAppender.drainCurrentThread();
+        if (!log.isBlank()) {
+            // Sulu importer contract (PR #152): name=log, MIME exactly text/plain, ext .txt
+            Allure.addAttachment("log", "text/plain", log, ".txt");
+        }
+    }
+{{- end}}
 }
