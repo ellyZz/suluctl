@@ -54,6 +54,7 @@ func Registry(k Kind) Framework {
 				"Add to playwright.config.ts: reporter: [['list'], ['allure-playwright', { resultsDir: 'allure-results' }]]",
 				"In every spec, import test from './support/sulu' (not '@playwright/test') — the auto fixture fires only then.",
 				"Run: npm install",
+				"Per-test logs: allure-playwright already attaches captured stdout/stderr — no extra setup; they appear in Sulu's Logs panel.",
 			}}
 	// Pytest: Manifest is printOnly (NOT auto-patch) — Go stdlib has no TOML parser;
 	// refines spec Decision #3 (see the spec's planning-amendment footnote).
@@ -63,7 +64,10 @@ func Registry(k Kind) Framework {
 			ManifestSnippet: "Add to pyproject.toml:\n" +
 				"  [project.optional-dependencies] test += \"allure-pytest==2.16.0\"\n" +
 				"  [tool.pytest.ini_options] addopts = \"... --alluredir allure-results\"",
-			ManualSteps: []string{"Install: python -m pip install allure-pytest==2.16.0"}}
+			ManualSteps: []string{
+				"Install: python -m pip install allure-pytest==2.16.0",
+				"Per-test logs: allure-pytest already attaches captured stdout/stderr/log as text/plain — enable pytest log capture (e.g. log_cli or default capture) and they appear in Sulu's Logs panel.",
+			}}
 	case XUnit:
 		return Framework{Kind: XUnit, Display: "xUnit", JavaPackage: false,
 			ResultsDir: "allure-results", TestCmd: "dotnet test", Manifest: patchCsproj,

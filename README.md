@@ -132,6 +132,25 @@ suluctl init [--framework testng|junit5|playwright|pytest|xunit] [--package P] [
 Caveats: **Playwright** specs must import `test` from `./support/sulu`; **xUnit** has no
 auto-binding — apply `[SuluTest("<id>")]` to tests or no results are produced.
 
+### Per-test logs (init)
+
+`suluctl init` can also wire **per-test** log capture so each test's log output
+shows in that result's Logs panel in Sulu.
+
+- **Java (log4j2):** when your build uses log4j2, `init` scaffolds a `SuluLogAppender`
+  and a per-test flush, and prints the `log4j2.xml` registration to add (a
+  `<SuluLog>` appender + `<Configuration packages="…">`). Requires `log4j-core`.
+  (logback/JUL are not auto-wired yet — add log4j2 or capture manually.)
+- **pytest / Playwright:** logs are already captured by `allure-pytest` /
+  `allure-playwright` — `init` just reminds you to enable capture.
+- **xUnit:** per-test log capture is planned for a later release.
+
+> ℹ️ This is **per-test** (each result's Logs panel). For the **whole-run console**
+> regardless of framework, use `suluctl watch` (see *Console logs* above).
+
+> Capture is per **test thread** — logs emitted on other threads (executors, async
+> callbacks) are not attached in this version.
+
 ### `suluctl sync-ids`
 
 After a first real run, auto-created test cases get an ugly id equal to the test's structural
