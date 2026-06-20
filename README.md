@@ -34,6 +34,49 @@ suluctl upload --results ./allure-results --launch-name "nightly $(date +%F)"
 suluctl watch --results ./allure-results -- mvn test
 ```
 
+## Logs in your Sulu launches
+
+By default a test report carries **no log output** — console logs live in CI, not in the report
+files suluctl uploads. So if your tests log plenty but the launch's Logs panel is empty, that's
+expected until you turn one of these on. There are two ways; use either or both:
+
+| You want | Use | Granularity | Setup |
+|---|---|---|---|
+| The **whole run's console** in the launch — any language | `suluctl watch` | launch-level | none — on by default |
+| **Per-test** logs under each result | `suluctl init` | per test result | one-time scaffold (Java/log4j2) |
+
+**1) Whole-run console — `watch` (zero setup, any stack).** Run your tests *through* `watch`
+(not `upload` after the fact) so suluctl can tee the console:
+
+```bash
+suluctl watch --results ./allure-results -- mvn test   # or ./gradlew test, pytest, npx playwright test …
+```
+
+The run's stdout/stderr appear in the launch's **Logs** panel (stdout→`INFO`, stderr→`ERROR`).
+On by default — disable with `SULU_SHIP_CONSOLE=false`. ⚠️ It ships **all** console output, so don't
+print secrets. (Details: [Console logs](#console-logs-launch-scoped).)
+
+**2) Per-test logs — `init` (Java + log4j2).** For logs under *each individual test result*, the
+framework has to attach them in-process. `suluctl init` wires that for you when your build uses
+**log4j2**:
+
+```bash
+suluctl init                                 # detects log4j2 → scaffolds a SuluLogAppender + per-test flush,
+                                             # then prints the <SuluLog> snippet to add to your log4j2.xml
+suluctl watch --results <dir> -- <test cmd>  # run → per-test logs now attach to each result
+```
+
+Add the printed `<SuluLog>` appender **and** `<Configuration packages="…">` to your `log4j2.xml`
+(suluctl can't safely merge your XML, so it prints the exact snippet to paste).
+**pytest / Playwright** already attach per-test logs via `allure-pytest` / `allure-playwright` — no
+extra work. **xUnit** is planned. (Details: [Per-test logs](#per-test-logs-init).)
+
+> **Logs still not showing?** ① You ran via `watch`, not a bare `upload` (only `watch` can tee the
+> console). ② For per-test: the `<SuluLog>` appender is registered in `log4j2.xml` with
+> `packages="<your glue package>"` (without it log4j2 can't find the appender). ③ The Allure
+> attachment must be named `log` with MIME exactly `text/plain` — the scaffolded glue does this; a
+> hand-rolled one must match.
+
 ## Configuration
 
 | Env var | Flag | Required | Meaning |
