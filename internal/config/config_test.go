@@ -37,3 +37,19 @@ func TestValidateListsAllMissing(t *testing.T) {
 		}
 	}
 }
+
+func TestFromEnvShipConsoleDefaultsTrue(t *testing.T) {
+	t.Setenv("SULU_SHIP_CONSOLE", "") // present-but-empty == unset for our parser
+	if !FromEnv().ShipConsole {
+		t.Error("SULU_SHIP_CONSOLE unset must default to true")
+	}
+}
+
+func TestFromEnvShipConsoleCanDisable(t *testing.T) {
+	for _, v := range []string{"false", "0", "FALSE"} {
+		t.Setenv("SULU_SHIP_CONSOLE", v)
+		if FromEnv().ShipConsole {
+			t.Errorf("SULU_SHIP_CONSOLE=%q must disable shipping", v)
+		}
+	}
+}
