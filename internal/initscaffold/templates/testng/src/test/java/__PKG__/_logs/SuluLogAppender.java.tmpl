@@ -1,6 +1,5 @@
 package {{.Package}};
 
-import io.qameta.allure.Allure;
 import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.Core;
 import org.apache.logging.log4j.core.Layout;
@@ -14,6 +13,7 @@ import org.apache.logging.log4j.core.config.plugins.PluginFactory;
 import org.apache.logging.log4j.core.layout.PatternLayout;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 
 /**
  * log4j2 appender that buffers each test thread's rendered log output so the Sulu
@@ -44,7 +44,7 @@ public final class SuluLogAppender extends AbstractAppender {
 
     @Override
     public void append(final LogEvent event) {
-        BUF.get().append(new String(getLayout().toByteArray(event)));
+        BUF.get().append(new String(getLayout().toByteArray(event), StandardCharsets.UTF_8));
     }
 
     /** Returns and clears this thread's buffered log. */
