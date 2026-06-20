@@ -59,7 +59,7 @@ cmd.Stdin  = os.Stdin                 // unchanged
 Signal forwarding and exit-code mapping stay exactly as today (`runner.go:29-53`). When capture writers are nil (e.g. shipping disabled), behaviour is byte-identical to today.
 
 - **stdout and stderr are captured separately** to preserve level: `stdout → INFO`, `stderr → ERROR` (matches the JUnit importer's `system-out`→INFO / `system-err`→ERROR convention). **No per-line level parsing** — robust and language-agnostic.
-- Each captured stream is read by a line scanner that **stamps `time.Now()` per line at read time** (correct ordering/timestamps; the backend returns launch logs in chronological order keyed on timestamp). Lines from both scanners are appended to a single, **mutex-guarded** NDJSON temp file (`{ts, level, message}` per line) so memory stays bounded on large runs.
+- Each captured stream is read by a line scanner that **stamps `time.Now()` per line at read time** (correct ordering/timestamps; the backend returns launch logs in chronological order keyed on timestamp). Lines from both scanners are accumulated in a single, **mutex-guarded, bounded in-memory buffer** (`{ts, level, message}` per line) — flush-once-at-exit makes an on-disk spill unnecessary; the hard cap (§8) keeps memory safe.
 - **Blank lines are dropped; every entry carries a non-null `level` + `timestamp`.** The backend DTO is `@NotBlank message` / `@NotNull level` / `@NotNull timestamp` (`CreateLogEventRequest.java`), so a single blank line or null field would `400` the whole batch. Filter blank lines at scan time (after stripping a trailing `\r` for Windows); `level` is always INFO/ERROR, `timestamp` always the read-time stamp.
 
 ### 4.2 Ship
@@ -80,7 +80,7 @@ func (c *Client) AppendLaunchLogs(launchID int64, entries []LogEntry) error
 (`timestamp` = ISO-8601 local date-time, parsed by `LocalDateTime`; `level` ∈ TRACE/DEBUG/INFO/WARN/ERROR — we emit only INFO/ERROR; `source` = `"suluctl-console"`, distinct from `allure-log-attachment` / `junit-import-suite`.)
 
 - `watch` already holds `session.LaunchID` (numeric `int64`) from `CreateLaunch` (`watch.go:88-104`, `api.go:28-29`) — the sink is addressable with zero extra calls.
-- **Flush once, at child exit**, after the final file sweep and **strictly before** `finishAndReport` (which calls `Finish` and flips the launch out of IN_PROGRESS; `watch.go:190-196`, `report.go:50`). Read the temp NDJSON back and POST in **bounded batches** (≈500 lines or ≈256 KB per request) — the V1 log endpoint has no documented payload cap, so the client batches defensively.
+- **Flush once, at child exit**, after the final file sweep and **strictly before** `finishAndReport` (which calls `Finish` and flips the launch out of IN_PROGRESS; `watch.go:190-196`, `report.go:50`). Read the accumulated entries back and POST in **bounded batches** (**≈500 entries per request**) — the V1 log endpoint has no documented payload cap, so the client batches defensively.
 - **Single pass, no retry (deliberate).** The launch-log endpoint is not idempotent (no dedup), so a re-POST would duplicate. A mid-flush failure therefore drops the remaining batches with a rate-limited WARNING rather than risk double logs — partial loss is the chosen tradeoff over duplication.
 
 ### 4.3 Default & kill-switch
@@ -227,7 +227,7 @@ The scaffolded glue emits exactly one per-test attachment: **name `log`, MIME `t
 
 ## 8. Risks
 
-- **Large runs (O1):** unbounded console → temp-file streaming + bounded batches mitigate. Soft cap **≈50 MB / 200k lines** captured per run; beyond it, warn once and stop appending (never OOM). Temp file lives under `os.TempDir()`, removed on normal exit **and** via a deferred cleanup that also fires on SIGINT/SIGTERM (the runner already forwards signals).
+- **Large runs (O1):** **hard cap ≈50 MB / 200k lines** in a bounded in-memory accumulator; past either, set a `truncated` flag, warn once at flush, and stop appending (never OOM). No temp file — the flush-once-at-exit model doesn't need one, which also avoids signal-time cleanup.
 - **Double-surfacing (O1):** a suite uploading BOTH a console tee (O1, launch-scoped) AND JUnit suite-level `<system-out>` (also launch-scoped, `junit-import-suite`) sees the same lines twice at launch level. Not applicable to allure-results suites (the reference case); document for JUnit-XML uploaders.
 - **Security/PII (O1):** default-ON ships all console output — see §4.3; documented, no v1 redaction.
 - **Plugin discovery (O2):** a custom `@Plugin` appender unresolved by log4j2 → config failure; mitigated by `packages="<glue pkg>"` on `<Configuration>` (§5.3).
