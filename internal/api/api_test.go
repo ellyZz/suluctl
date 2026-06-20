@@ -246,3 +246,60 @@ func TestUploadFilesSkipsUnopenable(t *testing.T) {
 		t.Errorf("want 1 part, got %d", count.Load())
 	}
 }
+
+func TestAppendLaunchLogsBatches(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	var total int
+	var first LogEntry
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch []LogEntry
+		_ = json.NewDecoder(r.Body).Decode(&batch)
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		if total == 0 && len(batch) > 0 {
+			first = batch[0]
+		}
+		total += len(batch)
+		mu.Unlock()
+	}))
+	entries := make([]LogEntry, 1100) // > two batches of 500
+	for i := range entries {
+		entries[i] = LogEntry{Timestamp: "2026-06-20T22:01:44.000", Level: "INFO", Message: "m", Source: "suluctl-console"}
+	}
+	if err := c.AppendLaunchLogs(42, entries); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if total != 1100 {
+		t.Errorf("want 1100 entries delivered, got %d", total)
+	}
+	if len(paths) != 3 { // 500 + 500 + 100
+		t.Errorf("want 3 batched POSTs, got %d (%v)", len(paths), paths)
+	}
+	if paths[0] != "/api/launches/42/logs" {
+		t.Errorf("path = %q", paths[0])
+	}
+	if first.Source != "suluctl-console" || first.Level != "INFO" {
+		t.Errorf("bad entry shape: %+v", first)
+	}
+}
+
+func TestAppendLaunchLogsAbortsOnBatchError(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest) // 400 = non-retryable -> abort, no re-send
+	}))
+	entries := make([]LogEntry, 600) // two batches
+	for i := range entries {
+		entries[i] = LogEntry{Timestamp: "2026-06-20T22:01:44.000", Level: "INFO", Message: "m"}
+	}
+	if err := c.AppendLaunchLogs(42, entries); err == nil {
+		t.Fatal("want error from the failed first batch")
+	}
+	if calls.Load() != 1 {
+		t.Errorf("must abort after the first failed batch, got %d calls", calls.Load())
+	}
+}

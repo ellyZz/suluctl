@@ -183,6 +183,34 @@ func (c *Client) Finish(launchUUID, executionState string) error {
 		finishRequest{ExecutionState: executionState}, nil)
 }
 
+// LogEntry maps to the backend CreateLogEventRequest. Timestamp is ISO-8601 local
+// (no offset) so it parses into Java LocalDateTime; Level is a LogLevel name.
+type LogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	Source    string `json:"source"`
+}
+
+const logBatchSize = 500
+
+// AppendLaunchLogs posts launch-scoped log events to POST /api/launches/{id}/logs
+// in batches of logBatchSize. Single pass: a failed batch aborts the remainder
+// (the endpoint is not idempotent — a re-sent batch would duplicate).
+func (c *Client) AppendLaunchLogs(launchID int64, entries []LogEntry) error {
+	path := fmt.Sprintf("/api/launches/%d/logs", launchID)
+	for start := 0; start < len(entries); start += logBatchSize {
+		end := start + logBatchSize
+		if end > len(entries) {
+			end = len(entries)
+		}
+		if err := c.postJSON(path, entries[start:end], nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Client) Ledger(launchUUID string) ([]FileResult, error) {
 	var out []FileResult
 	err := c.withRetry("GET ledger", func() error {
