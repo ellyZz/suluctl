@@ -85,6 +85,7 @@ extra work. **xUnit** is planned. (Details: [Per-test logs](#per-test-logs-init)
 | `SULU_TOKEN` | `--token` | yes | User API token (Profile → API keys in Sulu) |
 | `SULU_PROJECT_ID` | `--project` | yes | Numeric project ID to upload results into |
 | `SULU_LAUNCH_NAME` | `--launch-name` | no | Launch name; server assigns a default when omitted |
+| `SULU_LAUNCH_UUID` | `--launch-uuid` | no | Upload into an existing launch by its `clientUuid` (a plain UUID). **Set automatically by Sulu Jobs** (the dispatched workflow receives `SULU_LAUNCH_UUID`); leave unset for normal runs to create a fresh launch. See [Sulu Jobs](#sulu-jobs). |
 | — | `--env` | no | Environment label attached to the launch |
 | — | `--tag` | no | Tag name (repeatable, e.g. `--tag smoke --tag nightly`) |
 | — | `--env-var K=V` | no | Custom environment variable recorded on the launch (repeatable) |
@@ -133,6 +134,21 @@ test:
 - **`upload`** creates an import session on the Sulu server, then uploads files in batches (up to 100 files / 190 MB per request; files larger than 50 MB ride alone). After all batches are sent, it calls finish and prints a ledger summary with a direct link to the new launch.
 - **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
 - **The server handles format detection** — allure-results JSON, allure container JSON, JUnit XML, and ZIP archives are all parsed server-side. Unknown file types are silently ignored and never cause an error.
+
+### Sulu Jobs
+
+When a run is triggered by a **Sulu Job** (`/app/jobs`), Sulu pre-creates the launch and forwards
+its UUID to the workflow as `SULU_LAUNCH_UUID`. `suluctl` reads that env var automatically and sends
+it as the import `clientUuid`, so results land **in the Job's launch** instead of a separate one —
+no extra configuration needed. `finish` then finalizes that same launch.
+
+- Works for both `upload` and `watch`.
+- The value must be a **plain UUID** (Jobs always supply one). On reuse, the server keeps the Job's
+  launch name, so `--launch-name` is a no-op.
+- **Same-project rule:** the Job must live in the same project as `SULU_PROJECT_ID` — otherwise the
+  server rejects the upload with **403** (`clientUuid belongs to a launch in another project`).
+- **Avoid pre-seeding:** dispatch the Job **without** a test-case / test-plan selection. A selection
+  pre-seeds `PENDING` rows that the import won't claim, leaving duplicate/orphan rows in the launch.
 
 ### Console logs (launch-scoped)
 

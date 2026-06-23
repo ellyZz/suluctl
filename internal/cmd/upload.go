@@ -28,6 +28,7 @@ func Upload(args []string, out, errW io.Writer, version string) int {
 	fs.StringVar(&cfg.Token, "token", cfg.Token, "API token (env SULU_TOKEN)")
 	fs.Int64Var(&cfg.ProjectID, "project", cfg.ProjectID, "project id (env SULU_PROJECT_ID)")
 	fs.StringVar(&cfg.LaunchName, "launch-name", cfg.LaunchName, "launch name (env SULU_LAUNCH_NAME)")
+	fs.StringVar(&cfg.LaunchUUID, "launch-uuid", cfg.LaunchUUID, "upload into an existing launch by clientUuid (env SULU_LAUNCH_UUID; set by Sulu Jobs)")
 	fs.StringVar(&cfg.Environment, "env", "", "launch environment")
 	fs.Var(&tags, "tag", "launch tag (repeatable)")
 	fs.Var(&envVars, "env-var", "launch env var K=V (repeatable)")
@@ -62,6 +63,7 @@ func Upload(args []string, out, errW io.Writer, version string) int {
 
 	session, err := client.CreateLaunch(api.LaunchRequest{
 		ProjectID:   cfg.ProjectID,
+		ClientUUID:  cfg.LaunchUUID,
 		Name:        cfg.LaunchName,
 		Environment: cfg.Environment,
 		Tags:        cfg.Tags,

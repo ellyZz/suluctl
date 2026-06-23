@@ -17,7 +17,11 @@ import (
 )
 
 type LaunchRequest struct {
-	ProjectID   int64             `json:"projectId"`
+	ProjectID int64 `json:"projectId"`
+	// ClientUUID, when set, makes the server upload into an existing launch matched
+	// by clientUuid (used by Sulu Jobs via SULU_LAUNCH_UUID). omitempty is load-bearing:
+	// off-Job runs must omit the key so the server creates a fresh launch as before.
+	ClientUUID  string            `json:"clientUuid,omitempty"`
 	Name        string            `json:"name,omitempty"`
 	Environment string            `json:"environment,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`

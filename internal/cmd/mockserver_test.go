@@ -94,7 +94,7 @@ func newMockSulu(t *testing.T) *mockSulu {
 // neutralizeEnv keeps the user's real SULU_* env out of hermetic tests.
 func neutralizeEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"SULU_URL", "SULU_TOKEN", "SULU_PROJECT_ID", "SULU_LAUNCH_NAME"} {
+	for _, k := range []string{"SULU_URL", "SULU_TOKEN", "SULU_PROJECT_ID", "SULU_LAUNCH_NAME", "SULU_LAUNCH_UUID"} {
 		t.Setenv(k, "")
 	}
 }

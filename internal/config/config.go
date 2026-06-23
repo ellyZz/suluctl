@@ -14,6 +14,7 @@ type Config struct {
 	Token       string
 	ProjectID   int64
 	LaunchName  string
+	LaunchUUID  string
 	Environment string
 	Tags        []string
 	EnvVars     map[string]string
@@ -21,13 +22,14 @@ type Config struct {
 	ShipConsole bool
 }
 
-// FromEnv reads SULU_URL, SULU_TOKEN, SULU_PROJECT_ID, SULU_LAUNCH_NAME.
+// FromEnv reads SULU_URL, SULU_TOKEN, SULU_PROJECT_ID, SULU_LAUNCH_NAME, SULU_LAUNCH_UUID.
 // A malformed SULU_PROJECT_ID stays 0 and is reported by Validate.
 func FromEnv() Config {
 	cfg := Config{
 		URL:        strings.TrimRight(os.Getenv("SULU_URL"), "/"),
 		Token:      os.Getenv("SULU_TOKEN"),
 		LaunchName: os.Getenv("SULU_LAUNCH_NAME"),
+		LaunchUUID: os.Getenv("SULU_LAUNCH_UUID"),
 	}
 	if v := os.Getenv("SULU_PROJECT_ID"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {

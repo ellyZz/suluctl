@@ -71,6 +71,71 @@ func TestFlagsOverrideEnv(t *testing.T) {
 	}
 }
 
+// SULU_LAUNCH_UUID / --launch-uuid is forwarded as the import clientUuid so results
+// land in a Sulu Job's pre-created launch; when unset, clientUuid is omitted (the
+// server then creates a fresh launch as before).
+func TestUploadForwardsLaunchUUIDAsClientUuid(t *testing.T) {
+	const uuid = "11111111-1111-1111-1111-111111111111"
+
+	t.Run("flag", func(t *testing.T) {
+		neutralizeEnv(t)
+		m := newMockSulu(t)
+		dir := t.TempDir()
+		writeFixture(t, dir, "a-result.json", "{}")
+		var out, errB bytes.Buffer
+		code := Upload([]string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1",
+			"--launch-uuid", uuid}, &out, &errB, "test")
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, errB.String())
+		}
+		m.mu.Lock()
+		got := m.createReq["clientUuid"]
+		m.mu.Unlock()
+		if got != uuid {
+			t.Errorf("clientUuid: want %q, got %v", uuid, got)
+		}
+	})
+
+	t.Run("env", func(t *testing.T) {
+		neutralizeEnv(t)
+		t.Setenv("SULU_LAUNCH_UUID", uuid)
+		m := newMockSulu(t)
+		dir := t.TempDir()
+		writeFixture(t, dir, "a-result.json", "{}")
+		var out, errB bytes.Buffer
+		code := Upload([]string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1"},
+			&out, &errB, "test")
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, errB.String())
+		}
+		m.mu.Lock()
+		got := m.createReq["clientUuid"]
+		m.mu.Unlock()
+		if got != uuid {
+			t.Errorf("clientUuid from env: want %q, got %v", uuid, got)
+		}
+	})
+
+	t.Run("unset omits clientUuid", func(t *testing.T) {
+		neutralizeEnv(t)
+		m := newMockSulu(t)
+		dir := t.TempDir()
+		writeFixture(t, dir, "a-result.json", "{}")
+		var out, errB bytes.Buffer
+		code := Upload([]string{"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1"},
+			&out, &errB, "test")
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, errB.String())
+		}
+		m.mu.Lock()
+		_, present := m.createReq["clientUuid"]
+		m.mu.Unlock()
+		if present {
+			t.Errorf("clientUuid must be absent when unset, got %v", m.createReq["clientUuid"])
+		}
+	})
+}
+
 func TestUpload409IsTerminal(t *testing.T) {
 	neutralizeEnv(t)
 	m := newMockSulu(t)

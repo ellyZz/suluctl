@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -51,6 +52,27 @@ func TestCreateLaunch(t *testing.T) {
 	}
 	if gotBody.ProjectID != 7 || len(gotBody.Tags) != 1 {
 		t.Errorf("bad body: %+v", gotBody)
+	}
+}
+
+// LaunchRequest.ClientUUID must serialize to "clientUuid" when set and be omitted
+// entirely when empty (omitempty) — the latter keeps off-Job runs creating fresh
+// launches. A decode-into-struct test can't tell absent from "", so assert on bytes.
+func TestLaunchRequestClientUUIDOmitempty(t *testing.T) {
+	without, err := json.Marshal(LaunchRequest{ProjectID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(without), "clientUuid") {
+		t.Errorf("clientUuid must be omitted when empty, got %s", without)
+	}
+
+	with, err := json.Marshal(LaunchRequest{ProjectID: 1, ClientUUID: "11111111-1111-1111-1111-111111111111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(with), `"clientUuid":"11111111-1111-1111-1111-111111111111"`) {
+		t.Errorf("clientUuid must be present when set, got %s", with)
 	}
 }
 
