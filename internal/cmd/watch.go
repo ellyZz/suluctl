@@ -130,6 +130,21 @@ func Watch(args []string, out, errW io.Writer, version string) int {
 		exitCh <- exitResult{code, intr, err}
 	}()
 
+	logFailStreak := 0
+	shipLogs := func() {
+		if capr == nil {
+			return
+		}
+		if err := shipPendingConsole(client, session.LaunchID, capr); err != nil {
+			if logFailStreak == 0 {
+				fmt.Fprintf(errW, "WARNING: shipping console logs failed (%v) — will keep retrying\n", err)
+			}
+			logFailStreak++
+			return
+		}
+		logFailStreak = 0
+	}
+
 	var responses, local []api.FileResult
 	failStreak := 0
 	sessionClosed := false
@@ -194,6 +209,7 @@ loop:
 		select {
 		case <-ticker.C:
 			doScan(scanner.Scan)
+			shipLogs()
 		case res = <-exitCh:
 			break loop
 		}
@@ -208,10 +224,13 @@ loop:
 	if res.interrupted {
 		state = "STOPPED"
 	}
-	if cfg.ShipConsole && capr != nil {
-		capOut.Flush()
+	if capr != nil {
+		capOut.Flush() // emit trailing partial lines (no newline at EOF)
 		capErr.Flush()
-		shipConsole(client, session.LaunchID, capr, errW)
+		if capr.Truncated() {
+			fmt.Fprintln(errW, "WARNING: console output exceeded the capture cap — shipped logs are truncated")
+		}
+		shipLogs() // final drain of anything the last tick didn't ship
 	}
 	finishAndReport(client, session, responses, local, state, false, out, errW, cfg.URL)
 	return mapExitCode(res.code)
@@ -236,18 +255,26 @@ func splitOnDashDash(args []string) (cli, child []string) {
 	return args, nil
 }
 
-// shipConsole best-effort posts the captured console as launch-scoped logs.
-// Failures are warnings only — they never affect the wrapped command's exit code.
-func shipConsole(client *api.Client, launchID int64, capr *console.Capturer, errW io.Writer) {
-	if capr.Truncated() {
-		fmt.Fprintln(errW, "WARNING: console output exceeded the capture cap — shipped logs are truncated")
-	}
-	entries := toLogEntries(capr.Entries())
-	if len(entries) == 0 {
-		return
-	}
-	if err := client.AppendLaunchLogs(launchID, entries); err != nil {
-		fmt.Fprintf(errW, "WARNING: shipping console logs failed (%v)\n", err)
+// consoleChunkSize bounds one console-log POST; matches the API client's own
+// batch size so each AppendLaunchLogs call below is exactly one request.
+const consoleChunkSize = 500
+
+// shipPendingConsole ships captured console lines oldest-first in bounded
+// chunks, discarding each chunk only after Sulu acknowledged it — on failure
+// the rest stays pending for the next tick, so a transient outage loses
+// nothing. Failures never affect the wrapped command's exit code. Accepted
+// tradeoff: the endpoint is not idempotent, so a POST whose response is lost
+// gets re-sent next tick and duplicates that chunk.
+func shipPendingConsole(client *api.Client, launchID int64, capr *console.Capturer) error {
+	for {
+		snap := capr.Peek(consoleChunkSize)
+		if len(snap) == 0 {
+			return nil
+		}
+		if err := client.AppendLaunchLogs(launchID, toLogEntries(snap)); err != nil {
+			return err
+		}
+		capr.Discard(len(snap))
 	}
 }
 

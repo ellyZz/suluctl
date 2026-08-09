@@ -272,6 +272,86 @@ func TestWatchShipsConsoleLogs(t *testing.T) {
 	}
 }
 
+func TestWatchStreamsConsoleLogsDuringRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+
+	m := newMockSulu(t)
+	dir := filepath.Join(t.TempDir(), "results")
+
+	var out, errB bytes.Buffer
+	// lines separated by sleeps spanning several ticks — incremental shipping
+	// must produce multiple POSTs, not one flush at exit
+	code := Watch([]string{
+		"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", `echo line-1 && sleep 0.3 && echo line-2 && sleep 0.3 && printf partial-tail`,
+	}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, errB.String())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.logPosts < 2 {
+		t.Errorf("want >=2 log POSTs (per-tick streaming), got %d — flush-once-at-exit?", m.logPosts)
+	}
+	var msgs []string
+	for _, e := range m.logs {
+		msgs = append(msgs, e["message"].(string))
+	}
+	want := []string{"line-1", "line-2", "partial-tail"}
+	if len(msgs) != len(want) {
+		t.Fatalf("want %v, got %v", want, msgs)
+	}
+	for i, w := range want {
+		if msgs[i] != w {
+			t.Errorf("order broken at %d: want %q, got %q (all: %v)", i, w, msgs[i], msgs)
+		}
+	}
+}
+
+func TestWatchRetriesConsoleLogsAfterOutage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available")
+	}
+	neutralizeEnv(t)
+	old := watchTick
+	watchTick = 50 * time.Millisecond
+	t.Cleanup(func() { watchTick = old })
+	watchNoBackoff(t)
+
+	m := newMockSulu(t)
+	m.failLogs = 5 // first ship exhausts 4 attempts; a later tick succeeds
+	dir := filepath.Join(t.TempDir(), "results")
+
+	var out, errB bytes.Buffer
+	code := Watch([]string{
+		"--results", dir, "--url", m.srv.URL, "--token", "t", "--project", "1", "--",
+		"sh", "-c", `echo survivor && sleep 1 && exit 7`,
+	}, &out, &errB, "test")
+	if code != 7 {
+		t.Fatalf("log-shipping failures must never affect the child's exit code: want 7, got %d (stderr: %s)", code, errB.String())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var msgs []string
+	for _, e := range m.logs {
+		msgs = append(msgs, e["message"].(string))
+	}
+	if len(msgs) != 1 || msgs[0] != "survivor" {
+		t.Errorf("line must be retried and shipped after the outage clears, got %v", msgs)
+	}
+	if n := strings.Count(errB.String(), "console"); n != 1 {
+		t.Errorf("want exactly one rate-limited console warning per streak, got %d:\n%s", n, errB.String())
+	}
+}
+
 func TestWatchShipConsoleDisabledShipsNothing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("sh not available")

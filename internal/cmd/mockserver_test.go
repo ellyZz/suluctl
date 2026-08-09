@@ -16,11 +16,13 @@ type mockSulu struct {
 	finished      bool
 	failFiles     int // make the next N /files requests answer 500 (outage simulation)
 	reject413Next int // make the next N /files requests answer 413
+	failLogs      int // make the next N /logs requests answer 500 (outage simulation)
 	finishReq     map[string]string
 	createReq     map[string]any
 	ledger        []map[string]string
 	uploads       int
 	logs          []map[string]any
+	logPosts      int
 }
 
 func newMockSulu(t *testing.T) *mockSulu {
@@ -83,8 +85,14 @@ func newMockSulu(t *testing.T) *mockSulu {
 		var batch []map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&batch)
 		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.failLogs > 0 {
+			m.failLogs--
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		m.logPosts++
 		m.logs = append(m.logs, batch...)
-		m.mu.Unlock()
 	})
 	m.srv = httptest.NewServer(mux)
 	t.Cleanup(m.srv.Close)

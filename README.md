@@ -52,8 +52,8 @@ expected until you turn one of these on. There are two ways; use either or both:
 suluctl watch --results ./allure-results -- mvn test   # or ./gradlew test, pytest, npx playwright test …
 ```
 
-The run's stdout/stderr appear in the launch's **Logs** panel (stdout→`INFO`, stderr→`ERROR`).
-On by default — disable with `SULU_SHIP_CONSOLE=false`. ⚠️ It ships **all** console output, so don't
+The run's stdout/stderr appear in the launch's **Logs** panel (stdout→`INFO`, stderr→`ERROR`),
+**streamed live** while the tests run. On by default — disable with `SULU_SHIP_CONSOLE=false`. ⚠️ It ships **all** console output, so don't
 print secrets. (Details: [Console logs](#console-logs-launch-scoped).)
 
 **2) Per-test logs — `init` (Java + log4j2).** For logs under *each individual test result*, the
@@ -132,7 +132,7 @@ test:
 ## How it works
 
 - **`upload`** creates an import session on the Sulu server, then uploads files in batches (up to 100 files / 190 MB per request; files larger than 50 MB ride alone). After all batches are sent, it calls finish and prints a ledger summary with a direct link to the new launch.
-- **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
+- **`watch`** polls the results directory every 2 seconds and uploads files once their size and modification time are stable across two consecutive scans. Changed files are re-uploaded — the server deduplicates identical files by checksum and collapses rewritten results by test identity (historyId). Captured console output ships on the same 2-second cadence, so it appears in the launch's Logs panel while the tests are still running. If Sulu is unreachable, `watch` runs the test command transparently and exits with its exit code.
 - **The server handles format detection** — allure-results JSON, allure container JSON, JUnit XML, and ZIP archives are all parsed server-side. Unknown file types are silently ignored and never cause an error.
 
 ### Sulu Jobs
@@ -157,12 +157,20 @@ no extra configuration needed. `finish` then finalizes that same launch.
 **on by default** and works for any language/framework, since suluctl just
 tees the console of whatever you run.
 
+- **Streams live**: captured lines are shipped every ~2 seconds during the run
+  (a trailing line without a newline ships right after the command exits), so
+  the Logs panel fills in near-real-time instead of at the end of the run.
 - Disable with `--ship-console=false` or `SULU_SHIP_CONSOLE=false`.
 - stdout lines are recorded at `INFO`, stderr at `ERROR`.
 - Capture is best-effort: if Sulu is unreachable, your test command's exit
-  code is never affected.
-- Capped at ~50 MB / 200k lines per run (beyond that, logs are truncated with
-  a warning).
+  code is never affected. A transient outage delays shipping — pending lines
+  are retried on later ticks. Rare edge: if a POST lands but its response is
+  lost, the retry can duplicate that chunk (retrying is favoured over losing
+  lines).
+- The un-shipped backlog is capped at ~50 MB / 200k lines. Past the cap
+  (reachable only while Sulu stays unreachable long enough for the backlog to
+  grow that large), capture stops for the rest of the run and the logs carry a
+  truncation warning.
 - **JUnit XML uploaders:** if the uploaded XML contains `<system-out>`/`<system-err>`,
   the server ships those suite-level lines a second time (as `junit-import-suite` source)
   — console output can appear twice in the Logs panel for JUnit XML runs.

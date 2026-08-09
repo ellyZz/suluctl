@@ -2,6 +2,8 @@
 
 > Status: **approved (design)** · 2026-06-20 · target repo: `ellyZz/suluctl`
 > Companion backend: `ellyZz/sulu` (no backend change required — both tracks ride already-shipped endpoints)
+>
+> **Amended 2026-08-10** ([PR #5](https://github.com/ellyZz/suluctl/pull/5)): the O1 shipping model changed from flush-once-at-exit to **per-tick incremental streaming** — the §3 non-goal "Live per-tick log streaming for O1", the §4 "Flush once, at child exit" model, and the §4 "Single pass, no retry" decision are superseded. `watch` now drains captured lines every 2 s tick (Peek → POST ≤500 → Discard-on-ack); a failed POST leaves entries pending for the next tick, flipping the tradeoff to *retry over loss* (a re-POST after a lost response can duplicate one chunk). The §8 cap now bounds the **un-shipped backlog** (drained lines free budget); the sticky truncation warning is unchanged. Companion FE reconnect catch-up: [ellyZz/sulu#282](https://github.com/ellyZz/sulu/pull/282).
 
 ## 1. Problem
 
