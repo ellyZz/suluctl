@@ -50,6 +50,69 @@ func TestCapTruncates(t *testing.T) {
 	}
 }
 
+func TestPeekDoesNotConsume(t *testing.T) {
+	c := New()
+	w := c.Writer("INFO")
+	w.Write([]byte("one\ntwo\nthree\n"))
+
+	got := c.Peek(2)
+	if len(got) != 2 || got[0].Message != "one" || got[1].Message != "two" {
+		t.Fatalf("Peek(2) = %+v, want oldest two in order", got)
+	}
+	again := c.Peek(2)
+	if len(again) != 2 || again[0].Message != "one" {
+		t.Errorf("second Peek(2) = %+v, must not consume", again)
+	}
+	all := c.Peek(10)
+	if len(all) != 3 || all[2].Message != "three" {
+		t.Errorf("Peek(10) = %+v, want all three", all)
+	}
+}
+
+func TestDiscardRemovesOldestAndFreesCapBudget(t *testing.T) {
+	c := New()
+	w := c.Writer("INFO")
+	for i := 0; i < MaxLines; i++ {
+		w.Write([]byte("x\n"))
+	}
+	if c.Truncated() {
+		t.Fatal("exactly MaxLines lines must not truncate")
+	}
+
+	c.Discard(5)
+	w.Write([]byte("a\nb\nc\nd\ne\n")) // freed budget: 5 new lines must fit
+	if c.Truncated() {
+		t.Error("adds after Discard freed the budget must not truncate")
+	}
+	got := c.Entries()
+	if len(got) != MaxLines {
+		t.Fatalf("want %d entries after discard+refill, got %d", MaxLines, len(got))
+	}
+	if got[0].Message != "x" || got[len(got)-1].Message != "e" {
+		t.Errorf("order broken: first=%q last=%q", got[0].Message, got[len(got)-1].Message)
+	}
+
+	c.Discard(MaxLines + 100) // over-discard clamps, must not panic
+	if n := len(c.Entries()); n != 0 {
+		t.Errorf("over-discard must clamp to empty, got %d entries", n)
+	}
+}
+
+func TestTruncatedStaysStickyAcrossDiscard(t *testing.T) {
+	c := New()
+	w := c.Writer("INFO")
+	for i := 0; i < MaxLines+10; i++ {
+		w.Write([]byte("x\n"))
+	}
+	if !c.Truncated() {
+		t.Fatal("must truncate past the cap")
+	}
+	c.Discard(MaxLines)
+	if !c.Truncated() {
+		t.Error("Truncated must stay sticky after Discard — output WAS dropped")
+	}
+}
+
 func TestForceEmitsOversizedNewlinelessWrite(t *testing.T) {
 	c := New()
 	w := c.Writer("INFO")

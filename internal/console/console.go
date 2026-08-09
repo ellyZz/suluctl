@@ -9,8 +9,11 @@ import (
 	"time"
 )
 
-// Caps: past either, capture stops and Truncated() reports true. The flush-once
-// -at-exit model makes an on-disk spill unnecessary at this size.
+// Caps apply to the un-shipped backlog: entries stay in the Capturer until the
+// watch loop ships them (Peek → POST → Discard), so a shipped line frees its
+// budget. Past either cap, capture stops and Truncated() reports true — the
+// worst case (Sulu unreachable all run) is bounded at this size, making an
+// on-disk spill unnecessary.
 const (
 	MaxLines = 200_000
 	MaxBytes = 50 << 20 // 50 MB
@@ -57,6 +60,35 @@ func (c *Capturer) Entries() []Entry {
 	out := make([]Entry, len(c.entries))
 	copy(out, c.entries)
 	return out
+}
+
+// Peek returns a copy of up to max oldest un-shipped entries without consuming them.
+func (c *Capturer) Peek(max int) []Entry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := min(max, len(c.entries))
+	if n <= 0 {
+		return nil
+	}
+	out := make([]Entry, n)
+	copy(out, c.entries[:n])
+	return out
+}
+
+// Discard drops the n oldest entries and frees their cap budget. Call only
+// after those entries were successfully shipped. truncated stays sticky —
+// dropped output is gone regardless of later shipping.
+func (c *Capturer) Discard(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n = min(n, len(c.entries))
+	if n <= 0 {
+		return
+	}
+	for _, e := range c.entries[:n] {
+		c.bytes -= len(e.Message)
+	}
+	c.entries = append(c.entries[:0:0], c.entries[n:]...)
 }
 
 // Truncated reports whether the cap was hit (some output dropped).
