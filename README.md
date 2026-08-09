@@ -163,10 +163,14 @@ tees the console of whatever you run.
 - Disable with `--ship-console=false` or `SULU_SHIP_CONSOLE=false`.
 - stdout lines are recorded at `INFO`, stderr at `ERROR`.
 - Capture is best-effort: if Sulu is unreachable, your test command's exit
-  code is never affected. A transient outage only delays shipping — pending
-  lines are retried on later ticks, nothing is lost.
-- The un-shipped backlog is capped at ~50 MB / 200k lines (only reachable when
-  Sulu stays unreachable; beyond that, logs are truncated with a warning).
+  code is never affected. A transient outage delays shipping — pending lines
+  are retried on later ticks. Rare edge: if a POST lands but its response is
+  lost, the retry can duplicate that chunk (retrying is favoured over losing
+  lines).
+- The un-shipped backlog is capped at ~50 MB / 200k lines. Past the cap
+  (reachable only while Sulu stays unreachable long enough for the backlog to
+  grow that large), capture stops for the rest of the run and the logs carry a
+  truncation warning.
 - **JUnit XML uploaders:** if the uploaded XML contains `<system-out>`/`<system-err>`,
   the server ships those suite-level lines a second time (as `junit-import-suite` source)
   — console output can appear twice in the Logs panel for JUnit XML runs.
