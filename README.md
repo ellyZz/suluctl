@@ -43,7 +43,7 @@ expected until you turn one of these on. There are two ways; use either or both:
 | You want | Use | Granularity | Setup |
 |---|---|---|---|
 | The **whole run's console** in the launch — any language | `suluctl watch` | launch-level | none — on by default |
-| **Per-test** logs under each result | `suluctl init` | per test result | one-time scaffold (Java/log4j2) |
+| **Per-test** logs under each result | `suluctl init` | per test result | one-time scaffold (Java: log4j2 or logback) |
 
 **1) Whole-run console — `watch` (zero setup, any stack).** Run your tests *through* `watch`
 (not `upload` after the fact) so suluctl can tee the console:
@@ -56,24 +56,29 @@ The run's stdout/stderr appear in the launch's **Logs** panel (stdout→`INFO`, 
 **streamed live** while the tests run. On by default — disable with `SULU_SHIP_CONSOLE=false`. ⚠️ It ships **all** console output, so don't
 print secrets. (Details: [Console logs](#console-logs-launch-scoped).)
 
-**2) Per-test logs — `init` (Java + log4j2).** For logs under *each individual test result*, the
-framework has to attach them in-process. `suluctl init` wires that for you when your build uses
-**log4j2**:
+**2) Per-test logs — `init` (Java: log4j2 or logback).** For logs under *each individual test
+result*, the framework has to attach them in-process. `suluctl init` wires that for you from
+whichever logging framework your build declares:
 
 ```bash
-suluctl init                                 # detects log4j2 → scaffolds a SuluLogAppender + per-test flush,
-                                             # then prints the <SuluLog> snippet to add to your log4j2.xml
+suluctl init                                 # detects log4j2 / logback → scaffolds a SuluLogAppender
+                                             # + per-test flush, then prints the XML snippet to register it
 suluctl watch --results <dir> -- <test cmd>  # run → per-test logs now attach to each result
 ```
 
-Add the printed `<SuluLog>` appender **and** `<Configuration packages="…">` to your `log4j2.xml`
-(suluctl can't safely merge your XML, so it prints the exact snippet to paste).
+Paste the printed snippet into your logging config — `log4j2.xml` (a `<SuluLog>` appender **and**
+`<Configuration packages="…">`) or `logback-test.xml` (an `<appender class="…SuluLogAppender">`;
+logback resolves by class name, so no `packages=` equivalent is needed). suluctl can't safely merge
+your XML, so it prints the exact snippet to paste.
 **pytest / Playwright** already attach per-test logs via `allure-pytest` / `allure-playwright` — no
 extra work. **xUnit** is planned. (Details: [Per-test logs](#per-test-logs-init).)
 
 > **Logs still not showing?** ① You ran via `watch`, not a bare `upload` (only `watch` can tee the
-> console). ② For per-test: the `<SuluLog>` appender is registered in `log4j2.xml` with
-> `packages="<your glue package>"` (without it log4j2 can't find the appender). ③ The Allure
+> console). ② For per-test, the appender is registered: log4j2 needs `<SuluLog>` **plus**
+> `packages="<your glue package>"`; logback needs the `<appender class="…">` **and** an
+> `<appender-ref ref="SuluLog"/>` inside `<root>`. ③ `init` skipped the appender because neither
+> framework appeared in your build file — logback often arrives transitively (e.g. via
+> `spring-boot-starter-test`); declare it explicitly and re-run `suluctl init --force`. ④ The Allure
 > attachment must be named `log` with MIME exactly `text/plain` — the scaffolded glue does this; a
 > hand-rolled one must match.
 
@@ -204,19 +209,32 @@ auto-binding — apply `[SuluTest("<id>")]` to tests or no results are produced.
 `suluctl init` can also wire **per-test** log capture so each test's log output
 shows in that result's Logs panel in Sulu.
 
-- **Java (log4j2):** when your build uses log4j2, `init` scaffolds a `SuluLogAppender`
-  and a per-test flush, and prints the `log4j2.xml` registration to add (a
-  `<SuluLog>` appender + `<Configuration packages="…">`). Requires `log4j-core`.
-  (logback/JUL are not auto-wired yet — add log4j2 or capture manually.)
+- **Java (log4j2):** `init` scaffolds a `SuluLogAppender` and a per-test flush, and
+  prints the `log4j2.xml` registration to add (a `<SuluLog>` appender +
+  `<Configuration packages="…">`). Requires `log4j-core`.
+- **Java (logback):** same glue, logback flavor — an `AppenderBase<ILoggingEvent>`
+  with the identical per-thread buffer. `init` prints the `logback-test.xml`
+  registration to add (`<appender name="SuluLog" class="<pkg>.SuluLogAppender">` with
+  an `<encoder><pattern>`, plus `<appender-ref ref="SuluLog"/>` inside `<root>`).
+  Requires `logback-classic`. There is no `packages=` equivalent — logback resolves
+  appenders by class name.
+- **Neither detected:** the appender is skipped and `init` says so, naming both
+  options. The check greps your build file, so a logging framework that arrives only
+  transitively (e.g. logback via `spring-boot-starter-test`) is invisible to it —
+  declare it as a test dependency and re-run `suluctl init --force`.
+- **If both are present:** log4j2 wins; `init` prints a note. Drop `log4j-core` to use
+  logback instead.
 - **pytest / Playwright:** logs are already captured by `allure-pytest` /
   `allure-playwright` — `init` just reminds you to enable capture.
-- **xUnit:** per-test log capture is planned for a later release.
+- **xUnit / JUL:** per-test log capture is planned for a later release.
 
 > ℹ️ This is **per-test** (each result's Logs panel). For the **whole-run console**
 > regardless of framework, use `suluctl watch` (see *Console logs* above).
 
 > Capture is per **test thread** — logs emitted on other threads (executors, async
-> callbacks) are not attached in this version.
+> callbacks) are not attached in this version. The buffer is drained when a test
+> finishes, so anything logged on the same thread *between* tests (e.g. a class-level
+> `@AfterAll`/`@AfterClass`) lands at the head of the next test's log.
 
 ### `suluctl sync-ids`
 

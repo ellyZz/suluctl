@@ -41,6 +41,33 @@ func TestDetectLog4j2(t *testing.T) {
 	}
 }
 
+func TestDetectLogback(t *testing.T) {
+	dir := t.TempDir()
+	if DetectLogback(dir) {
+		t.Error("empty dir must not detect logback")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"),
+		[]byte("dependencies { testImplementation 'ch.qos.logback:logback-classic:1.5.12' }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !DetectLogback(dir) {
+		t.Error("build.gradle with logback-classic must detect logback")
+	}
+	if DetectLog4j2(dir) {
+		t.Error("a logback-only build must not detect log4j2")
+	}
+
+	// group-only: "ch.qos.logback" present but "logback-classic" absent — exercises the second OR branch
+	dir2 := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir2, "pom.xml"),
+		[]byte("<dependency><groupId>ch.qos.logback</groupId><artifactId>logback-core</artifactId></dependency>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !DetectLogback(dir2) {
+		t.Error("group-only ch.qos.logback (no logback-classic) must still detect logback")
+	}
+}
+
 func TestDetect(t *testing.T) {
 	cases := []struct {
 		name  string
