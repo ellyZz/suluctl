@@ -58,7 +58,8 @@ func Init(args []string, out, errW io.Writer, version string) int {
 	}
 
 	// Per-test log glue: scaffolded for whichever logging framework the build file
-	// references. log4j2 wins when both are present (pre-existing behavior).
+	// references. log4j2 wins when both are present, keeping the scaffold unchanged
+	// for every project that worked before logback was detected at all.
 	flavor := initscaffold.LogNone
 	alsoLogback := false
 	if fw.JavaPackage {

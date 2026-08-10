@@ -106,8 +106,37 @@ func TestInitJUnit5WithLogbackScaffoldsLogGlue(t *testing.T) {
 	}
 }
 
-// Silence was the bug: a Java project with neither logging framework must be told
-// how to opt in, naming both options.
+// Both frameworks declared: log4j2 keeps winning (an existing project's scaffold must not
+// change under it), and the report says logback was seen so the choice isn't a mystery.
+func TestInitBothLoggingFrameworksPrefersLog4j2(t *testing.T) {
+	neutralizeEnv(t)
+	dir := initInDir(t, "dependencies {\n"+
+		"  testImplementation 'org.testng:testng:7.10.2'\n"+
+		"  testImplementation 'org.apache.logging.log4j:log4j-core:2.23.1'\n"+
+		"  testImplementation 'ch.qos.logback:logback-classic:1.5.12'\n}\n")
+
+	var out, errB bytes.Buffer
+	if code := Init([]string{"--package", "com.acme.qa"}, &out, &errB, "test"); code != 0 {
+		t.Fatalf("exit %d; stderr=%s", code, errB.String())
+	}
+	appender, err := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(appender), `@Plugin(name = "SuluLog"`) {
+		t.Errorf("log4j2 must win when both frameworks are present:\n%s", appender)
+	}
+	if strings.Contains(string(appender), "AppenderBase<ILoggingEvent>") {
+		t.Error("logback appender leaked into a both-frameworks project")
+	}
+	if !strings.Contains(out.String(), "logback was also detected") {
+		t.Errorf("report must disclose that logback was detected too:\n%s", out.String())
+	}
+}
+
+// A Java project with neither logging framework has always been given a hint, but it
+// used to name only log4j2 — i.e. it told a logback user to switch frameworks. It must
+// now name both options.
 func TestInitJavaWithoutLoggingFrameworkPrintsHint(t *testing.T) {
 	neutralizeEnv(t)
 	dir := initInDir(t, "dependencies {\n  testImplementation 'org.testng:testng:7.10.2'\n}\n")

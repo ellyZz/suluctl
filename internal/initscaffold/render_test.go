@@ -193,15 +193,25 @@ func TestRenderLogAttachmentContractIsLocked(t *testing.T) {
 	}
 }
 
-func TestRenderWithLogsPreservesUnderscoreLogsPackageSegment(t *testing.T) {
-	dir := t.TempDir()
-	// a (contrived) Java package whose path contains a literal "_logs" segment
-	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme._logs.qa", Logs: LogLog4j2}); err != nil {
-		t.Fatal(err)
-	}
-	// the appender must land in the real package dir, with the package's own _logs segment intact
-	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/_logs/qa/SuluLogAppender.java")); err != nil {
-		t.Errorf("appender path corrupted by the log-marker strip: %v", err)
+// The marker strip must not chew on a user's own package path. Two guards:
+// the historical "_logs" segment (which the pre-flavor marker could collide with),
+// and a segment that literally spells a current marker — only reachable because
+// --package is unvalidated, and only harmless because the strip runs BEFORE
+// __PKG__ substitution. Move the strip after substitution and this goes red.
+func TestRenderWithLogsPreservesMarkerLikePackageSegments(t *testing.T) {
+	for _, tc := range []struct{ pkg, wantDir string }{
+		{"com.acme._logs.qa", "src/test/java/com/acme/_logs/qa"},
+		{"com.acme._logs-logback.qa", "src/test/java/com/acme/_logs-logback/qa"},
+	} {
+		t.Run(tc.pkg, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: tc.pkg, Logs: LogLog4j2}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, tc.wantDir, "SuluLogAppender.java")); err != nil {
+				t.Errorf("appender path corrupted by the log-marker strip: %v", err)
+			}
+		})
 	}
 }
 
