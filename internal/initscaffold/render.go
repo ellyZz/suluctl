@@ -9,12 +9,31 @@ import (
 	"text/template"
 )
 
+// LogFlavor selects which per-test log appender the glue is scaffolded for.
+// The rendered class name (SuluLogAppender) and its drainCurrentThread() API are
+// identical across flavors, so the flush glue in the extension/listener templates
+// stays flavor-agnostic — only the appender's source file differs.
+type LogFlavor string
+
+const (
+	LogNone    LogFlavor = ""
+	LogLog4j2  LogFlavor = "log4j2"
+	LogLogback LogFlavor = "logback"
+)
+
+// logMarkers map a template path segment to the flavor it belongs to. A Java
+// package segment can never contain "-", so these can't collide with a user package.
+var logMarkers = map[string]LogFlavor{
+	"_logs-log4j2/":  LogLog4j2,
+	"_logs-logback/": LogLogback,
+}
+
 type RenderOptions struct {
-	Dir      string
-	Package  string
-	Force    bool
-	DryRun   bool
-	WithLogs bool
+	Dir     string
+	Package string
+	Force   bool
+	DryRun  bool
+	Logs    LogFlavor
 }
 
 type Action struct {
@@ -34,13 +53,13 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 		}
 		rel := strings.TrimPrefix(p, root+"/")
 		// Handle the log-glue marker BEFORE package substitution: at this point the
-		// package is still the literal "__PKG__", so the only "_logs/" present is our
-		// marker (a user package segment named "_logs" can't interfere).
-		if strings.Contains(rel, "_logs/") {
-			if !opt.WithLogs {
-				return nil // log-only glue, not requested
+		// package is still the literal "__PKG__", so the only marker present is ours
+		// (a user package segment can't interfere — markers contain "-").
+		if marker, flavor, ok := logMarker(rel); ok {
+			if opt.Logs != flavor {
+				return nil // log-only glue: not requested, or the other flavor
 			}
-			rel = strings.Replace(rel, "_logs/", "", 1)
+			rel = strings.Replace(rel, marker, "", 1)
 		}
 		if fw.JavaPackage {
 			rel = strings.Replace(rel, "__PKG__", pkgPath, 1)
@@ -62,7 +81,7 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 			if eerr := tpl.Execute(&buf, struct {
 				Package  string
 				WithLogs bool
-			}{opt.Package, opt.WithLogs}); eerr != nil {
+			}{opt.Package, opt.Logs != LogNone}); eerr != nil {
 				return eerr
 			}
 			content = buf.Bytes()
@@ -83,6 +102,16 @@ func Render(fw Framework, opt RenderOptions) ([]Action, error) {
 		return nil
 	})
 	return actions, err
+}
+
+// logMarker returns the log-glue marker segment in rel and the flavor it belongs to.
+func logMarker(rel string) (marker string, flavor LogFlavor, ok bool) {
+	for m, f := range logMarkers {
+		if strings.Contains(rel, m) {
+			return m, f, true
+		}
+	}
+	return "", LogNone, false
 }
 
 // plan decides the verb and whether to write, comparing any existing file.

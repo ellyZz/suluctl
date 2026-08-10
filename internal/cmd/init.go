@@ -57,10 +57,21 @@ func Init(args []string, out, errW io.Writer, version string) int {
 		pkg = initscaffold.DetectJavaBasePackage(dir)
 	}
 
-	withLogs := fw.JavaPackage && initscaffold.DetectLog4j2(dir)
+	// Per-test log glue: scaffolded for whichever logging framework the build file
+	// references. log4j2 wins when both are present (pre-existing behavior).
+	flavor := initscaffold.LogNone
+	alsoLogback := false
+	if fw.JavaPackage {
+		switch hasLog4j2, hasLogback := initscaffold.DetectLog4j2(dir), initscaffold.DetectLogback(dir); {
+		case hasLog4j2:
+			flavor, alsoLogback = initscaffold.LogLog4j2, hasLogback
+		case hasLogback:
+			flavor = initscaffold.LogLogback
+		}
+	}
 
 	actions, err := initscaffold.Render(fw, initscaffold.RenderOptions{
-		Dir: dir, Package: pkg, Force: force, DryRun: dryRun, WithLogs: withLogs,
+		Dir: dir, Package: pkg, Force: force, DryRun: dryRun, Logs: flavor,
 	})
 	if err != nil {
 		fmt.Fprintf(errW, "scaffold failed: %v\n", err)
@@ -71,10 +82,16 @@ func Init(args []string, out, errW io.Writer, version string) int {
 		fmt.Fprintf(errW, "manifest patch failed: %v\n", err)
 		return 1
 	}
-	if withLogs {
+	switch {
+	case flavor == initscaffold.LogLog4j2:
+		if alsoLogback {
+			fw.ManualSteps = append(fw.ManualSteps, "logback was also detected — scaffolding the log4j2 appender; drop log4j-core to use logback instead.")
+		}
 		fw.ManualSteps = append(fw.ManualSteps, initscaffold.Log4j2SetupSteps(pkg)...)
-	} else if fw.JavaPackage {
-		fw.ManualSteps = append(fw.ManualSteps, initscaffold.Log4j2HintSteps()...)
+	case flavor == initscaffold.LogLogback:
+		fw.ManualSteps = append(fw.ManualSteps, initscaffold.LogbackSetupSteps(pkg)...)
+	case fw.JavaPackage:
+		fw.ManualSteps = append(fw.ManualSteps, initscaffold.LogHintSteps()...)
 	}
 	if dryRun {
 		fmt.Fprintln(out, "DRY RUN — no files written")

@@ -83,6 +83,64 @@ func TestInitTestNGWithLog4j2ScaffoldsLogGlue(t *testing.T) {
 	}
 }
 
+func TestInitJUnit5WithLogbackScaffoldsLogGlue(t *testing.T) {
+	neutralizeEnv(t)
+	dir := initInDir(t, "dependencies {\n  testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'\n  testImplementation 'ch.qos.logback:logback-classic:1.5.12'\n}\n")
+
+	var out, errB bytes.Buffer
+	code := Init([]string{"--package", "com.acme.qa"}, &out, &errB, "test")
+	if code != 0 {
+		t.Fatalf("exit %d; stderr=%s", code, errB.String())
+	}
+	appender, err := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java"))
+	if err != nil {
+		t.Fatalf("SuluLogAppender not scaffolded for a logback JUnit5 project: %v", err)
+	}
+	if !strings.Contains(string(appender), "AppenderBase<ILoggingEvent>") {
+		t.Errorf("logback project got the wrong appender flavor:\n%s", appender)
+	}
+	for _, want := range []string{"logback-test.xml", `class="com.acme.qa.SuluLogAppender"`, "<appender-ref ref=\"SuluLog\"/>"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report must print the logback registration step %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// Silence was the bug: a Java project with neither logging framework must be told
+// how to opt in, naming both options.
+func TestInitJavaWithoutLoggingFrameworkPrintsHint(t *testing.T) {
+	neutralizeEnv(t)
+	dir := initInDir(t, "dependencies {\n  testImplementation 'org.testng:testng:7.10.2'\n}\n")
+
+	var out, errB bytes.Buffer
+	if code := Init([]string{"--package", "com.acme.qa"}, &out, &errB, "test"); code != 0 {
+		t.Fatalf("exit %d; stderr=%s", code, errB.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); !os.IsNotExist(err) {
+		t.Error("no appender may be scaffolded without a detected logging framework")
+	}
+	for _, want := range []string{"log4j-core", "logback-classic", "suluctl init --force"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("hint must mention %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// initInDir writes build.gradle into a temp dir and chdirs into it for the test.
+func initInDir(t *testing.T, buildGradle string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "build.gradle"), []byte(buildGradle), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestInitDryRunWritesNothing(t *testing.T) {
 	neutralizeEnv(t)
 	dir := t.TempDir()

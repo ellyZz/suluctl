@@ -56,24 +56,34 @@ func TestRenderDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+// appenderMarkers are the flavor-distinguishing lines of each SuluLogAppender template.
+var appenderMarkers = map[LogFlavor]string{
+	LogLog4j2:  `@Plugin(name = "SuluLog"`,
+	LogLogback: "extends AppenderBase<ILoggingEvent>",
+}
+
 func TestRenderTestNGWithLogsScaffoldsAppenderAndFlush(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme.qa", WithLogs: true}); err != nil {
-		t.Fatal(err)
-	}
-	appender := filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")
-	ab, err := os.ReadFile(appender)
-	if err != nil {
-		t.Fatalf("appender not written with WithLogs: %v", err)
-	}
-	for _, want := range []string{"package com.acme.qa;", "@Plugin(name = \"SuluLog\"", "drainCurrentThread"} {
-		if !strings.Contains(string(ab), want) {
-			t.Errorf("appender missing %q", want)
-		}
-	}
-	lb, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLabelListener.java"))
-	if !strings.Contains(string(lb), `Allure.addAttachment("log", "text/plain"`) {
-		t.Errorf("listener afterInvocation flush missing:\n%s", lb)
+	for _, flavor := range []LogFlavor{LogLog4j2, LogLogback} {
+		t.Run(string(flavor), func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme.qa", Logs: flavor}); err != nil {
+				t.Fatal(err)
+			}
+			appender := filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")
+			ab, err := os.ReadFile(appender)
+			if err != nil {
+				t.Fatalf("appender not written for %s: %v", flavor, err)
+			}
+			for _, want := range []string{"package com.acme.qa;", appenderMarkers[flavor], "drainCurrentThread"} {
+				if !strings.Contains(string(ab), want) {
+					t.Errorf("appender missing %q", want)
+				}
+			}
+			lb, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLabelListener.java"))
+			if !strings.Contains(string(lb), `Allure.addAttachment("log", "text/plain"`) {
+				t.Errorf("listener afterInvocation flush missing:\n%s", lb)
+			}
+		})
 	}
 }
 
@@ -83,26 +93,34 @@ func TestRenderTestNGWithoutLogsOmitsAppender(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); !os.IsNotExist(err) {
-		t.Error("appender must NOT be scaffolded when WithLogs is false")
+		t.Error("appender must NOT be scaffolded when Logs is LogNone")
 	}
 	lb, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLabelListener.java"))
 	if strings.Contains(string(lb), "addAttachment") {
-		t.Errorf("listener must stay a no-op when WithLogs is false:\n%s", lb)
+		t.Errorf("listener must stay a no-op when Logs is LogNone:\n%s", lb)
 	}
 }
 
 func TestRenderJUnit5WithLogsScaffoldsAppenderAndFlush(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := Render(Registry(JUnit5), RenderOptions{Dir: dir, Package: "com.acme.qa", WithLogs: true}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); err != nil {
-		t.Fatalf("junit5 appender not written: %v", err)
-	}
-	ext, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluAllureExtension.java"))
-	s := string(ext)
-	if !strings.Contains(s, "AfterTestExecutionCallback") || !strings.Contains(s, `Allure.addAttachment("log", "text/plain"`) {
-		t.Errorf("junit5 extension afterTestExecution flush missing:\n%s", s)
+	for _, flavor := range []LogFlavor{LogLog4j2, LogLogback} {
+		t.Run(string(flavor), func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := Render(Registry(JUnit5), RenderOptions{Dir: dir, Package: "com.acme.qa", Logs: flavor}); err != nil {
+				t.Fatal(err)
+			}
+			ab, err := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java"))
+			if err != nil {
+				t.Fatalf("junit5 appender not written for %s: %v", flavor, err)
+			}
+			if !strings.Contains(string(ab), appenderMarkers[flavor]) {
+				t.Errorf("appender missing %q", appenderMarkers[flavor])
+			}
+			ext, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluAllureExtension.java"))
+			s := string(ext)
+			if !strings.Contains(s, "AfterTestExecutionCallback") || !strings.Contains(s, `Allure.addAttachment("log", "text/plain"`) {
+				t.Errorf("junit5 extension afterTestExecution flush missing:\n%s", s)
+			}
+		})
 	}
 }
 
@@ -112,23 +130,78 @@ func TestRenderJUnit5WithoutLogsOmitsAppender(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java")); !os.IsNotExist(err) {
-		t.Error("junit5 appender must NOT be scaffolded when WithLogs is false")
+		t.Error("junit5 appender must NOT be scaffolded when Logs is LogNone")
 	}
 	ext, _ := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluAllureExtension.java"))
 	if strings.Contains(string(ext), "AfterTestExecutionCallback") {
-		t.Errorf("extension must not implement AfterTestExecutionCallback when WithLogs is false")
+		t.Errorf("extension must not implement AfterTestExecutionCallback when Logs is LogNone")
+	}
+}
+
+// Only the requested flavor's appender is written — both render to the same path,
+// so a leaked marker would silently ship an appender that cannot compile.
+func TestRenderLogFlavorsAreMutuallyExclusive(t *testing.T) {
+	for _, fw := range []Kind{TestNG, JUnit5} {
+		for flavor, marker := range appenderMarkers {
+			t.Run(string(fw)+"/"+string(flavor), func(t *testing.T) {
+				dir := t.TempDir()
+				if _, err := Render(Registry(fw), RenderOptions{Dir: dir, Package: "com.acme.qa", Logs: flavor}); err != nil {
+					t.Fatal(err)
+				}
+				ab, err := os.ReadFile(filepath.Join(dir, "src/test/java/com/acme/qa/SuluLogAppender.java"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for other, otherMarker := range appenderMarkers {
+					if other != flavor && strings.Contains(string(ab), otherMarker) {
+						t.Errorf("%s render leaked the %s appender", flavor, other)
+					}
+				}
+				if !strings.Contains(string(ab), marker) {
+					t.Errorf("missing own marker %q", marker)
+				}
+			})
+		}
+	}
+}
+
+// Cross-repo contract lock (spec §5.6 / unified-ingest-runbook §13): Sulu routes an
+// Allure attachment into log_events only when the name matches ^(log|logs|stdout|stderr)…$
+// AND the MIME is exactly "text/plain". Changing any of these three constants here
+// silently breaks per-test logs until the backend is changed in lock step.
+func TestRenderLogAttachmentContractIsLocked(t *testing.T) {
+	glue := map[Kind]string{
+		TestNG: "src/test/java/com/acme/qa/SuluLabelListener.java",
+		JUnit5: "src/test/java/com/acme/qa/SuluAllureExtension.java",
+	}
+	for fw, rel := range glue {
+		for _, flavor := range []LogFlavor{LogLog4j2, LogLogback} {
+			t.Run(string(fw)+"/"+string(flavor), func(t *testing.T) {
+				dir := t.TempDir()
+				if _, err := Render(Registry(fw), RenderOptions{Dir: dir, Package: "com.acme.qa", Logs: flavor}); err != nil {
+					t.Fatal(err)
+				}
+				g, err := os.ReadFile(filepath.Join(dir, rel))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(g), `Allure.addAttachment("log", "text/plain", log, ".txt")`) {
+					t.Errorf("attachment contract drifted (want name=log, MIME text/plain, ext .txt):\n%s", g)
+				}
+			})
+		}
 	}
 }
 
 func TestRenderWithLogsPreservesUnderscoreLogsPackageSegment(t *testing.T) {
 	dir := t.TempDir()
 	// a (contrived) Java package whose path contains a literal "_logs" segment
-	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme._logs.qa", WithLogs: true}); err != nil {
+	if _, err := Render(Registry(TestNG), RenderOptions{Dir: dir, Package: "com.acme._logs.qa", Logs: LogLog4j2}); err != nil {
 		t.Fatal(err)
 	}
 	// the appender must land in the real package dir, with the package's own _logs segment intact
 	if _, err := os.Stat(filepath.Join(dir, "src/test/java/com/acme/_logs/qa/SuluLogAppender.java")); err != nil {
-		t.Errorf("appender path corrupted by the _logs marker strip: %v", err)
+		t.Errorf("appender path corrupted by the log-marker strip: %v", err)
 	}
 }
 
